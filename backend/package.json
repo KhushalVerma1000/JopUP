@@ -1,0 +1,15 @@
+{
+  "name": "jobup",
+  "version": "1.0.0",
+  "description": "platform to connect employers to jobseekers  in fstest way",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev":"nodemon index.js"
+  }
+}
+
+
