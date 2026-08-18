@@ -1,21 +1,31 @@
 /**
  * MODULE 1 — PLATFORM
  *
- * Manages subscription plans and their module/limit definitions.
- * Owned by the platform admin team. No organisation_id here — these
- * are global records that all tenants reference.
+ * Manages subscription plans, the module registry, and their limit
+ * definitions. Owned by the platform admin team. No organisation_id
+ * here — these are global records that all tenants reference.
  *
  * Tables:
- *   plan            — subscription tiers sold to organisations
- *   subscription    — billing record linking an org to a plan
+ *   module_definition — canonical registry of every toggleable module
+ *   plan               — subscription tiers sold to organisations
+ *   subscription        — billing record linking an org to a plan
  *
  * Key design decisions:
- *   - plan.modules  is a jsonb string[] of module keys included in the plan
+ *   - module_definition is the SINGLE SOURCE OF TRUTH for module_key
+ *     strings used everywhere else (plan.modules, org_module_override,
+ *     credit_cost, event_log.source_module). Nothing else may introduce
+ *     a new module_key without a row here first — this is what makes
+ *     the plan-toggle system safe to drive from an admin UI: render a
+ *     checkbox per active module_definition row, grouped by category,
+ *     instead of hardcoding module names in application code.
+ *   - plan.modules  is a jsonb string[] of module_definition.key values
  *                   e.g. ["client_management","candidate_db","workflow_engine"]
  *   - plan.limits   is a jsonb object of hard caps per plan
  *                   e.g. { max_teams: 10, max_hrs_per_team: 20, max_candidates: 5000 }
  *   - plan.credit_allowance is the monthly credit top-up for orgs on this plan
- *   - Adding a new module to a plan = update one jsonb array, no migrations
+ *   - Adding a new module to a plan = update one jsonb array, no migrations.
+ *     Adding a brand NEW module to the platform = insert one
+ *     module_definition row, no migrations to plan/org tables.
  */
 
 import {
@@ -54,7 +64,57 @@ export const billingCycleEnum = pgEnum("billing_cycle", [
   "yearly",
 ]);
 
+export const moduleCategoryEnum = pgEnum("module_category", [
+  "core",           // identity, teams, workflow — always on, not sold separately
+  "recruit",        // candidate_db, job_posting, pipeline_tracker
+  "crm",            // client_management, lead/interaction tracking
+  "finance",        // finance_management (FinMa) — invoicing, AR/AP
+  "hr",             // employee_hr (PowerEmp) — payroll, onboarding
+  "bench",          // bench_sales (BenchPro)
+  "communication",  // email_campaigns (EmailPro), sms_notifications
+  "vendor",         // vendor_management (VRO)
+  "portal",         // job_portal — public job-seeker facing
+  "analytics",      // kpi_engine, performance_reviews, strategy_planner
+]);
+
+export const moduleStatusEnum = pgEnum("module_status", [
+  "active",       // sellable / toggleable today
+  "beta",         // toggleable but flagged as beta in the UI
+  "deprecated",   // existing orgs keep access, not offered on new plans
+  "hidden",       // internal/platform-only, never shown in toggle UI
+]);
+
 // ─── Tables ──────────────────────────────────
+
+/**
+ * module_definition
+ * The canonical registry of every feature module in the platform.
+ * Drives the plan-builder and org-override toggle UIs dynamically —
+ * no code changes needed to launch, rename, or retire a module.
+ *
+ * key            — the string stored in plan.modules[] / org_module_override.module_key
+ * category       — groups modules for the toggle UI (see moduleCategoryEnum)
+ * is_credit_gated — true if actions inside this module can consume credits
+ *                   (cross-checked against credit_cost.module_key)
+ * depends_on     — jsonb string[] of other module keys this one requires
+ *                   e.g. bench_sales depends on ["candidate_db"]
+ * sort_order     — display order within a category
+ */
+export const moduleDefinition = pgTable("module_definition", {
+  id:            pkUuid(),
+  key:           text("key").notNull().unique(),
+  name:          text("name").notNull(),
+  description:   text("description"),
+  category:      moduleCategoryEnum("category").notNull(),
+  status:        moduleStatusEnum("status").notNull().default("active"),
+  isCreditGated: boolean("is_credit_gated").notNull().default(false),
+  dependsOn:     jsonb("depends_on").notNull().default(sql`'[]'::jsonb`),
+  sortOrder:     integer("sort_order").notNull().default(0),
+  ...createdAt,
+}, (t) => [
+  index("module_def_category_idx").on(t.category),
+  index("module_def_status_idx").on(t.status),
+]);
 
 /**
  * plan
