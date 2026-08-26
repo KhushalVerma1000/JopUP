@@ -9,10 +9,11 @@
  * Usage:
  *   npx tsx src/seed.ts
  */
+import "dotenv/config";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import * as schema from "./src/schema";
+import * as schema from "./schema";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema });
@@ -181,28 +182,28 @@ const PLANS = [
 
 const CREDIT_COSTS = [
   // SMS / Notifications
-  { moduleKey: "sms_notifications", actionKey: "send_sms",           description: "Send SMS to candidate",               cost: 1 },
-  { moduleKey: "sms_notifications", actionKey: "send_bulk_sms",      description: "Bulk SMS (per recipient)",            cost: 1 },
+  { moduleKey: "sms_notifications", actionKey: "send_sms", description: "Send SMS to candidate", cost: 1 },
+  { moduleKey: "sms_notifications", actionKey: "send_bulk_sms", description: "Bulk SMS (per recipient)", cost: 1 },
 
   // Resume parsing
-  { moduleKey: "candidate_db",      actionKey: "resume_parse",       description: "Parse uploaded resume",               cost: 3 },
-  { moduleKey: "candidate_db",      actionKey: "bulk_import",        description: "Bulk candidate import (per record)",  cost: 1 },
+  { moduleKey: "candidate_db", actionKey: "resume_parse", description: "Parse uploaded resume", cost: 3 },
+  { moduleKey: "candidate_db", actionKey: "bulk_import", description: "Bulk candidate import (per record)", cost: 1 },
 
   // Job portal
-  { moduleKey: "job_portal",        actionKey: "featured_listing",   description: "Feature a job posting (7 days)",      cost: 10 },
-  { moduleKey: "job_portal",        actionKey: "boost_listing",      description: "Boost listing visibility (3 days)",   cost: 5 },
+  { moduleKey: "job_portal", actionKey: "featured_listing", description: "Feature a job posting (7 days)", cost: 10 },
+  { moduleKey: "job_portal", actionKey: "boost_listing", description: "Boost listing visibility (3 days)", cost: 5 },
 
   // Analytics / exports
-  { moduleKey: "analytics",         actionKey: "bulk_export",        description: "Export report to CSV/XLSX",           cost: 5 },
-  { moduleKey: "analytics",         actionKey: "advanced_report",    description: "Generate advanced analytics report",  cost: 10 },
+  { moduleKey: "analytics", actionKey: "bulk_export", description: "Export report to CSV/XLSX", cost: 5 },
+  { moduleKey: "analytics", actionKey: "advanced_report", description: "Generate advanced analytics report", cost: 10 },
 
   // AI features
-  { moduleKey: "ai_screening",      actionKey: "ai_screen_single",   description: "AI screen one candidate",             cost: 2 },
-  { moduleKey: "ai_screening",      actionKey: "ai_screen_batch",    description: "AI screen up to 10 candidates",       cost: 15 },
-  { moduleKey: "ai_screening",      actionKey: "ai_match_jobs",      description: "AI job-candidate matching",           cost: 3 },
+  { moduleKey: "ai_screening", actionKey: "ai_screen_single", description: "AI screen one candidate", cost: 2 },
+  { moduleKey: "ai_screening", actionKey: "ai_screen_batch", description: "AI screen up to 10 candidates", cost: 15 },
+  { moduleKey: "ai_screening", actionKey: "ai_match_jobs", description: "AI job-candidate matching", cost: 3 },
 
   // Offer letters
-  { moduleKey: "pipeline_tracker",  actionKey: "generate_offer",     description: "Generate offer letter from template", cost: 2 },
+  { moduleKey: "pipeline_tracker", actionKey: "generate_offer", description: "Generate offer letter from template", cost: 2 },
 ];
 
 // ─── Seed Runner ─────────────────────────────────────────────
