@@ -18,6 +18,34 @@ class AuthController {
       data: { token, user, roles },
     });
   }
+
+  async listPendingApprovals(req, res) {
+    const { teamId } = req.query;
+    const users = await authService.listPendingApprovals(req.tenantId, req.user.userId, teamId);
+    res.json({
+      status: 'success',
+      data: { pendingUsers: users },
+    });
+  }
+
+  async approve(req, res) {
+    const { userId } = req.params;
+    const user = await authService.approveStaff(req.tenantId, userId, req.user.userId);
+    res.json({
+      status: 'success',
+      data: { user },
+    });
+  }
+
+  async reject(req, res) {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    const user = await authService.rejectStaff(req.tenantId, userId, req.user.userId, reason);
+    res.json({
+      status: 'success',
+      data: { user },
+    });
+  }
 }
 
 module.exports = new AuthController();

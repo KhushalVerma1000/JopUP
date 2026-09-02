@@ -32,6 +32,15 @@ const tenant = (req, res, next) => {
     return next();
   }
 
+  // A Bearer token is present but hasn't been verified yet — requireAuth runs
+  // *after* this global middleware on now-protected routes (candidates, clients,
+  // teams, job-postings, applications, performance, credits, workflow, org
+  // read/update). Defer to it instead of demanding x-tenant-id too; requireAuth
+  // will set req.tenantId from the verified JWT, or reject with 401 itself.
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    return next();
+  }
+
   const tenantId = req.headers['x-tenant-id'];
 
   if (!tenantId) {

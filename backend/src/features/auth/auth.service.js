@@ -220,6 +220,143 @@ class AuthService {
 
     return { token, user: toPublicUser(user), roles };
   }
+
+  /**
+   * List pending self-registration requests visible to the requesting
+   * user: org_admins see every pending request in the org; managers see
+   * only requests for teams they manage. Optionally narrowed by teamId.
+   */
+  async listPendingApprovals(organisationId, requestingUserId, teamId) {
+    const roles = await this.getActiveRoles(requestingUserId);
+    const isOrgAdmin = roles.some((r) => r.roleName === 'org_admin' && r.scope === 'org');
+    const managedTeamIds = roles
+      .filter((r) => r.roleName === 'manager' && r.scope === 'team' && r.teamId)
+      .map((r) => r.teamId);
+
+    if (!isOrgAdmin && managedTeamIds.length === 0) {
+      throw new UnauthorizedError('Only an org_admin or a team manager can view pending approvals');
+    }
+
+    const conditions = [
+      eq(schema.user.organisationId, organisationId),
+      eq(schema.user.status, 'pending_approval'),
+    ];
+
+    if (teamId) {
+      if (!isOrgAdmin && !managedTeamIds.includes(teamId)) {
+        throw new UnauthorizedError('You do not manage this team');
+      }
+      conditions.push(eq(schema.user.requestedTeamId, teamId));
+    } else if (!isOrgAdmin) {
+      // Manager without a teamId filter: scope to their own teams only.
+      conditions.push(or(...managedTeamIds.map((id) => eq(schema.user.requestedTeamId, id))));
+    }
+
+    const rows = await db.select().from(schema.user).where(and(...conditions));
+    return rows.map(toPublicUser);
+  }
+
+  async approveStaff(organisationId, targetUserId, approverUserId) {
+    const target = await db.query.user.findFirst({
+      where: and(
+        eq(schema.user.id, targetUserId),
+        eq(schema.user.organisationId, organisationId)
+      ),
+    });
+    if (!target) throw new NotFoundError('Registration request not found');
+    if (target.status !== 'pending_approval') {
+      throw new BadRequestError(`Cannot approve a user with status '${target.status}'`);
+    }
+
+    const approverIsEligible = await this._isEligibleApprover(
+      approverUserId,
+      organisationId,
+      target.requestedTeamId
+    );
+    if (!approverIsEligible) {
+      throw new UnauthorizedError('Only an org_admin or the manager of this team can approve this request');
+    }
+
+    const [updated] = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .update(schema.user)
+        .set({
+          status: 'active',
+          approvedBy: approverUserId,
+          approvedAt: new Date(),
+        })
+        .where(eq(schema.user.id, targetUserId))
+        .returning();
+
+      await tx.insert(schema.userTeamRole).values({
+        userId: targetUserId,
+        teamId: target.requestedTeamId,
+        roleId: target.requestedRoleId,
+        assignedBy: approverUserId,
+      });
+
+      return [u];
+    });
+
+    await auditWrite(
+      organisationId,
+      approverUserId,
+      'update',
+      'user',
+      targetUserId,
+      { status: 'pending_approval' },
+      { status: 'active' },
+      'auth'
+    );
+
+    return toPublicUser(updated);
+  }
+
+  async rejectStaff(organisationId, targetUserId, approverUserId, reason) {
+    const target = await db.query.user.findFirst({
+      where: and(
+        eq(schema.user.id, targetUserId),
+        eq(schema.user.organisationId, organisationId)
+      ),
+    });
+    if (!target) throw new NotFoundError('Registration request not found');
+    if (target.status !== 'pending_approval') {
+      throw new BadRequestError(`Cannot reject a user with status '${target.status}'`);
+    }
+
+    const approverIsEligible = await this._isEligibleApprover(
+      approverUserId,
+      organisationId,
+      target.requestedTeamId
+    );
+    if (!approverIsEligible) {
+      throw new UnauthorizedError('Only an org_admin or the manager of this team can reject this request');
+    }
+
+    const [updated] = await db
+      .update(schema.user)
+      .set({
+        status: 'rejected',
+        rejectedBy: approverUserId,
+        rejectedAt: new Date(),
+        rejectionReason: reason || null,
+      })
+      .where(eq(schema.user.id, targetUserId))
+      .returning();
+
+    await auditWrite(
+      organisationId,
+      approverUserId,
+      'update',
+      'user',
+      targetUserId,
+      { status: 'pending_approval' },
+      { status: 'rejected', rejectionReason: reason || null },
+      'auth'
+    );
+
+    return toPublicUser(updated);
+  }
 }
 
 module.exports = new AuthService();
