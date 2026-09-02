@@ -32,6 +32,7 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pkUuid, orgId, timestamps, createdAt } from "./_helpers";
@@ -50,6 +51,8 @@ export const userStatusEnum = pgEnum("user_status", [
   "active",
   "inactive",
   "invited",
+  "pending_approval", // self-registered, awaiting manager/org_admin approval
+  "rejected",         // self-registration reviewed and declined
   "suspended",
 ]);
 
@@ -143,11 +146,26 @@ export const user = pgTable("user", {
   avatarUrl:      text("avatar_url"),
   status:         userStatusEnum("status").notNull().default("invited"),
   lastLoginAt:    timestamp("last_login_at", { withTimezone: true }),
+
+  // ─── Self-registration → approval fields ────────────────────
+  // Populated when a staff member registers themself (status starts
+  // as 'pending_approval'). Cleared/kept for audit once actioned.
+  requestedTeamId:    uuid("requested_team_id").references((): AnyPgColumn => team.id, { onDelete: "set null" }),
+  requestedRoleId:    uuid("requested_role_id").references(() => role.id),
+  requestedManagerId: uuid("requested_manager_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
+  approvedBy:         uuid("approved_by").references((): AnyPgColumn => user.id),
+  approvedAt:         timestamp("approved_at", { withTimezone: true }),
+  rejectedBy:         uuid("rejected_by").references((): AnyPgColumn => user.id),
+  rejectedAt:         timestamp("rejected_at", { withTimezone: true }),
+  rejectionReason:    text("rejection_reason"),
+
   ...timestamps,
 }, (t) => [
   // Email must be unique within an org, not globally
   uniqueIndex("user_email_org_idx").on(t.organisationId, t.email),
   index("user_org_idx").on(t.organisationId),
+  index("user_status_idx").on(t.status),
+  index("user_requested_manager_idx").on(t.requestedManagerId),
 ]);
 
 /**
