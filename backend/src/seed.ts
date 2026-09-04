@@ -30,7 +30,10 @@ const ROLES = [
       subscriptions: ["read", "write", "cancel"],
       plans: ["read", "write", "delete"],
       audit_log: ["read"],
-      credit_accounts: ["read", "write", "adjust"],
+      // NOTE: was "credit_accounts" (plural) here vs. "credit_account" (singular)
+      // on org_admin below — inconsistent keys meant requirePermission('credit_account', ...)
+      // could never match this role. Aligned to the singular key both routes use.
+      credit_account: ["read", "write", "adjust"],
     },
     isSystem: true,
   },
@@ -42,10 +45,18 @@ const ROLES = [
       teams: ["read", "write", "delete"],
       users: ["read", "write", "delete", "invite"],
       clients: ["read", "write", "delete", "share"],
-      candidates: ["read", "write", "share"],
-      job_postings: ["read", "write", "publish", "archive"],
+      candidates: ["read", "write", "delete", "share"],
+      // "archive" was never implemented (job-postings.service.js only has
+      // closeJobPosting, no archive action) — replaced with the real actions.
+      job_postings: ["read", "write", "publish", "close", "delete"],
+      // Template management only. Advancing/blocking/holding an application
+      // through a workflow is a separate 'workflow_actions' permission below —
+      // org_admin gets both since they can do everything.
       workflow: ["read", "write"],
+      workflow_actions: ["advance", "block", "hold", "approve"],
+      applications: ["read", "write"],
       kpi: ["read", "write"],
+      strategy: ["read", "write"],
       audit_log: ["read"],
       credit_account: ["read"],
     },
@@ -58,8 +69,12 @@ const ROLES = [
     permissions: {
       clients: ["read", "write", "delete"],
       candidates: ["read", "write"],
-      job_postings: ["read", "write", "publish"],
-      workflow: ["advance", "block", "hold", "approve"],
+      // Managers can view templates to know what stages exist, but only
+      // org_admin edits them — so 'read' only, no 'write'.
+      job_postings: ["read", "write", "publish", "close"],
+      workflow: ["read"],
+      workflow_actions: ["advance", "block", "hold", "approve"],
+      applications: ["read", "write"],
       kpi: ["read", "write"],
       performance_reviews: ["read", "write"],
       goals: ["read", "write"],
@@ -77,7 +92,9 @@ const ROLES = [
       clients: ["read"],
       candidates: ["read", "write"],
       job_postings: ["read", "write", "publish"],
-      workflow: ["advance", "block", "hold"],
+      workflow: ["read"],
+      workflow_actions: ["advance", "block", "hold"],
+      applications: ["read", "write"],
       kpi: ["read"],
       performance_reviews: ["read"],
       goals: ["read"],
@@ -214,13 +231,24 @@ async function seed() {
   // Roles
   console.log("  → Inserting roles...");
   for (const roleData of ROLES) {
+    // Roles are upserted on `name` (unique) rather than onConflictDoNothing():
+    // this seed script is also how permission-model changes like this one
+    // reach an already-seeded database. isSystem/scope are effectively
+    // immutable in practice (all seeded as true/fixed here), but permissions
+    // and description are exactly the fields we expect to evolve over time.
     await db
       .insert(schema.role)
       .values({
         ...roleData,
         permissions: roleData.permissions,
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: schema.role.name,
+        set: {
+          description: roleData.description,
+          permissions: roleData.permissions,
+        },
+      });
   }
   console.log(`     ✓ ${ROLES.length} roles`);
 

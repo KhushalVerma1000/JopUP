@@ -20,6 +20,14 @@ const portalRoutes = require('./features/job-portal/job-portal.routes');
 
 const app = express();
 
+// Trust the first proxy hop (load balancer / reverse proxy) in production so
+// express-rate-limit (and anything else keying off req.ip) sees the real
+// client IP instead of the proxy's — without this every request behind a
+// proxy shares one rate-limit bucket.
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Global Middlewares
 app.use(express.json());
 app.use(tenant); // Extracts tenant ID from headers globally

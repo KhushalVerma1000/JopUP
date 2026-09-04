@@ -27,11 +27,9 @@ router.get('/goals', requirePermission('goals', 'read'), controller.listGoals.bi
 router.post('/goals', requirePermission('goals', 'write'), validate(schema.createGoalSchema), controller.createGoal.bind(controller));
 router.patch('/goals/:id', requirePermission('goals', 'write'), validate(schema.updateGoalSchema), controller.updateGoal.bind(controller));
 
-// Strategies — 'strategy' permission only exists on the manager role in seed.ts
-// (org_admin/hr don't have it explicitly). Left behind requireAuth + module only
-// to avoid locking out org_admin, pending a seed-data fix.
-router.get('/strategies', controller.listStrategies.bind(controller));
-router.post('/strategies', validate(schema.createStrategySchema), controller.createStrategy.bind(controller));
-router.patch('/strategies/:id', validate(schema.updateStrategySchema), controller.updateStrategy.bind(controller));
+// Strategies — 'strategy' is now granted to org_admin as well as manager (patch 4).
+router.get('/strategies', requirePermission('strategy', 'read'), controller.listStrategies.bind(controller));
+router.post('/strategies', requirePermission('strategy', 'write'), validate(schema.createStrategySchema), controller.createStrategy.bind(controller));
+router.patch('/strategies/:id', requirePermission('strategy', 'write'), validate(schema.updateStrategySchema), controller.updateStrategy.bind(controller));
 
 module.exports = router;

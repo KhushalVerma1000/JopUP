@@ -12,7 +12,7 @@
  */
 
 const jwt = require('jsonwebtoken');
-const { UnauthorizedError } = require('../utils/errors');
+const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -46,6 +46,7 @@ const requireAuth = (req, res, next) => {
  * @param {string} action  e.g. 'read' | 'write' | 'delete' | 'publish'
  */
 const requirePermission = (entity, action) => (req, res, next) => {
+  // Not authenticated at all — a token is required first.
   if (!req.user || !req.user.roles) {
     return next(new UnauthorizedError('No roles found in token'));
   }
@@ -55,9 +56,12 @@ const requirePermission = (entity, action) => (req, res, next) => {
     return perms && perms.includes(action);
   });
 
+  // Authenticated, but the token's roles don't include this permission —
+  // this is a 403 (Forbidden), not a 401 (Unauthorized): the caller has
+  // already proven who they are, they just aren't allowed to do this.
   if (!hasPermission) {
     return next(
-      new UnauthorizedError(`Permission denied: ${entity}.${action}`)
+      new ForbiddenError(`Permission denied: ${entity}.${action}`)
     );
   }
 

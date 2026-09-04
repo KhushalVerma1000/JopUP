@@ -58,6 +58,20 @@ test('POST /api/v1/auth/login validates a well-formed request', async () => {
   assert.ok([200, 401, 500, 503].includes(response.status), `Unexpected status: ${response.status}`);
 });
 
+// Keep this LAST among /login tests — it deliberately exhausts the rate-limit
+// window for this process's IP, so any /login test after it would see 429.
+test('POST /api/v1/auth/login is rate-limited after repeated attempts', async () => {
+  // The limiter allows 10 requests per IP per 15-minute window (see rateLimit.js).
+  // Supertest requests from this process share an IP, so send enough to go past the cap.
+  let lastResponse;
+  for (let i = 0; i < 15; i++) {
+    lastResponse = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ organisationSlug: 'acme-recruiting', email: 'hr@example.com', password: 'wrong-password' });
+  }
+  assert.equal(lastResponse.status, 429);
+});
+
 test('GET /api/v1/auth/pending-approvals requires authentication', async () => {
   const response = await request(app).get('/api/v1/auth/pending-approvals');
   assert.equal(response.status, 401);

@@ -4,12 +4,13 @@ const controller = require('./auth.controller');
 const validate = require('../../middlewares/validate');
 const schema = require('./auth.schema');
 const { requireAuth } = require('../../middlewares/requireAuth');
+const { loginLimiter, registerLimiter } = require('../../middlewares/rateLimit');
 
 // Public — staff self-registration (creates a 'pending_approval' account)
-router.post('/register', validate(schema.registerStaffSchema), controller.registerStaff.bind(controller));
+router.post('/register', registerLimiter, validate(schema.registerStaffSchema), controller.registerStaff.bind(controller));
 
 // Public — staff login (rejects anything other than 'active' accounts)
-router.post('/login', validate(schema.loginStaffSchema), controller.login.bind(controller));
+router.post('/login', loginLimiter, validate(schema.loginStaffSchema), controller.login.bind(controller));
 
 // Manager / org_admin only — review self-registration requests.
 // Authorization (org_admin vs. manager-of-this-team) is enforced in the service layer,

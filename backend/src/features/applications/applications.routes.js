@@ -8,17 +8,18 @@ const requireModule = require('../../middlewares/requireModule');
 
 router.use(requireAuth, requireModule('pipeline_tracker'));
 
-// NOTE: seed.ts has no standalone 'applications' permission key — list/get/create
-// are left behind requireAuth + module gating only pending that product decision.
-router.get('/', controller.list.bind(controller));
-router.get('/:id', validate(schema.applicationParamsSchema), controller.getById.bind(controller));
-router.post('/', validate(schema.createApplicationSchema), controller.create.bind(controller));
+// list/get/create now use the 'applications' permission key added in patch 4.
+router.get('/', requirePermission('applications', 'read'), controller.list.bind(controller));
+router.get('/:id', requirePermission('applications', 'read'), validate(schema.applicationParamsSchema), controller.getById.bind(controller));
+router.post('/', requirePermission('applications', 'write'), validate(schema.createApplicationSchema), controller.create.bind(controller));
 
-router.post('/:id/advance', requirePermission('workflow', 'advance'), validate(schema.advanceStageSchema), controller.advanceStage.bind(controller));
-router.post('/:id/block', requirePermission('workflow', 'block'), validate(schema.blockApplicationSchema), controller.block.bind(controller));
-router.post('/:id/hold', requirePermission('workflow', 'hold'), validate(schema.applicationParamsSchema), controller.hold.bind(controller));
+// Stage-transition actions use 'workflow_actions' (renamed from the overloaded
+// 'workflow' key, which is now template-CRUD only — see workflow.routes.js).
+router.post('/:id/advance', requirePermission('workflow_actions', 'advance'), validate(schema.advanceStageSchema), controller.advanceStage.bind(controller));
+router.post('/:id/block', requirePermission('workflow_actions', 'block'), validate(schema.blockApplicationSchema), controller.block.bind(controller));
+router.post('/:id/hold', requirePermission('workflow_actions', 'hold'), validate(schema.applicationParamsSchema), controller.hold.bind(controller));
 
-router.get('/:id/history', validate(schema.applicationParamsSchema), controller.getHistory.bind(controller));
-router.post('/:id/stages/:logId/actions', validate(schema.addActionSchema), controller.addAction.bind(controller));
+router.get('/:id/history', requirePermission('applications', 'read'), validate(schema.applicationParamsSchema), controller.getHistory.bind(controller));
+router.post('/:id/stages/:logId/actions', requirePermission('applications', 'write'), validate(schema.addActionSchema), controller.addAction.bind(controller));
 
 module.exports = router;
