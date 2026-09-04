@@ -6,6 +6,8 @@ const errorHandler = require('./middlewares/errorHandler');
 
 // Feature Route Modules
 const authRoutes = require('./features/auth/auth.routes');
+const platformAdminsRoutes = require('./features/platform-admins/platform-admins.routes');
+const invitationsRoutes = require('./features/invitations/invitations.routes');
 const plansRoutes = require('./features/plans/plans.routes');
 const organizationRoutes = require('./features/organizations/organization.routes');
 const candidatesRoutes = require('./features/candidates/candidates.routes');
@@ -39,6 +41,8 @@ app.get('/api/health', (req, res) => {
 
 // Feature routes registration
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/platform-admins', platformAdminsRoutes);
+app.use('/api/v1/invitations', invitationsRoutes);
 app.use('/api/v1/plans', plansRoutes);
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/candidates', candidatesRoutes);
@@ -55,5 +59,3 @@ app.use('/api/v1/portal', portalRoutes);
 app.use(errorHandler);
 
 module.exports = app;
-
-

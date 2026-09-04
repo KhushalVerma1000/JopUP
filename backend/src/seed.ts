@@ -22,6 +22,28 @@ const db = drizzle(pool, { schema });
 
 const ROLES = [
   {
+    // The single "main admin" tier — owns the platform, can add/remove
+    // platform_admin sub-admins. Deliberately NOT self-registerable and
+    // NOT invitable via the invitation table (see invitations.service.js) —
+    // the only way to create one is scripts/provision-owner.ts, run
+    // out-of-band against the DB directly. There is intentionally no HTTP
+    // route that can mint a platform_owner.
+    name: "platform_owner",
+    scope: "platform" as const,
+    description: "Platform owner — full platform access plus managing platform_admin accounts",
+    permissions: {
+      organisations: ["read", "write", "delete", "impersonate"],
+      subscriptions: ["read", "write", "cancel"],
+      plans: ["read", "write", "delete"],
+      audit_log: ["read"],
+      credit_account: ["read", "write", "adjust"],
+      // Only the owner tier holds this — regular platform_admin sub-admins
+      // cannot add/remove/promote other admins.
+      platform_admins: ["read", "write", "delete"],
+    },
+    isSystem: true,
+  },
+  {
     name: "platform_admin",
     scope: "platform" as const,
     description: "Full platform access — Anthropic/platform team only",

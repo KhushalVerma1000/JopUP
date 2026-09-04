@@ -21,6 +21,7 @@ const tenant = (req, res, next) => {
     req.path.startsWith('/api/v1/plans') ||
     req.path.startsWith('/api/v1/portal') ||
     req.path.startsWith('/api/v1/auth') ||
+    req.path === '/api/v1/invitations/accept' ||
     (req.path === '/api/v1/organizations' && req.method === 'POST')
   ) {
     return next();
