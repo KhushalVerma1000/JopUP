@@ -111,6 +111,30 @@ test('GET /api/v1/workflows returns workflow stages', async () => {
   }
 });
 
+test('GET /api/v1/applications requires authentication', async () => {
+  const response = await request(app).get('/api/v1/applications');
+  assert.equal(response.status, 401);
+});
+
+test('GET /api/v1/organizations is refused for org_admin (platform_admin only)', async () => {
+  // org_admin does not hold the 'organisations' permission key — only
+  // platform_admin does (seed.ts, patch 4). Confirms that gap is actually closed.
+  const response = await request(app)
+    .get('/api/v1/organizations')
+    .set(orgAdminAuth());
+  assert.equal(response.status, 403);
+});
+
+test('GET /api/v1/organizations is allowed for platform_admin', async () => {
+  const token = staffToken({
+    roles: [{ teamId: null, roleName: 'platform_admin', permissions: { organisations: ['read', 'write'] } }],
+  });
+  const response = await request(app)
+    .get('/api/v1/organizations')
+    .set('Authorization', `Bearer ${token}`);
+  // Passes the permission check; DB may be unavailable in CI.
+  assert.ok([200, 500, 503].includes(response.status), `Unexpected status: ${response.status}`);
+});
 test('POST /api/v1/organizations fails on validation error', async () => {
   const response = await request(app)
     .post('/api/v1/organizations')
