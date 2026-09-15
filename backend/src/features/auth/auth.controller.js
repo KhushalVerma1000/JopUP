@@ -19,6 +19,14 @@ class AuthController {
     });
   }
 
+  async me(req, res) {
+    const user = await authService.getMe(req.tenantId, req.user.userId);
+    res.json({
+      status: 'success',
+      data: { user, roles: req.user.roles },
+    });
+  }
+
   async listPendingApprovals(req, res) {
     const { teamId } = req.query;
     const users = await authService.listPendingApprovals(req.tenantId, req.user.userId, teamId);

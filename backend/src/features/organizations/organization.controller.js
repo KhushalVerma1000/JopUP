@@ -19,10 +19,15 @@ class OrganizationController {
   }
 
   async create(req, res) {
-    const newOrg = await orgService.createOrganization(req.body);
+    const { organisation: newOrg, admin } = await orgService.createOrganization(req.body);
     res.status(201).json({
       status: 'success',
-      data: { organization: newOrg }
+      message: admin
+        ? 'Organisation and admin account created. Log in via POST /api/v1/auth/login.'
+        : 'Organisation created. It has no admin yet — see adminEmail/adminPassword fields, or invite one via the platform team.',
+      // 'organization' kept as the top-level key (not nested under a new
+      // wrapper) so this stays backward-compatible with existing callers.
+      data: { organization: newOrg, admin }
     });
   }
 
@@ -35,6 +40,33 @@ class OrganizationController {
     });
   }
   
+  // Self-service trio for /organizations/me — any authenticated staff member
+  // can view their own org's profile/modules; only org_admin can update it
+  // (enforced at the route level via requireOrgRole, not here).
+  async getMine(req, res) {
+    const org = await orgService.getOrganizationById(req.tenantId);
+    res.json({
+      status: 'success',
+      data: { organization: org }
+    });
+  }
+
+  async updateMine(req, res) {
+    const updatedOrg = await orgService.updateOrganization(req.tenantId, req.body);
+    res.json({
+      status: 'success',
+      data: { organization: updatedOrg }
+    });
+  }
+
+  async getMyModules(req, res) {
+    const modules = await orgService.getOrgModules(req.tenantId);
+    res.json({
+      status: 'success',
+      data: { modules }
+    });
+  }
+
   async getModules(req, res) {
     const { id } = req.params;
     const modules = await orgService.getOrgModules(id);

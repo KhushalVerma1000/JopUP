@@ -3,11 +3,27 @@ const router = express.Router();
 const controller = require('./organization.controller');
 const validate = require('../../middlewares/validate');
 const schema = require('./organization.schema');
-const { requireAuth, requirePermission } = require('../../middlewares/requireAuth');
+const { requireAuth, requirePermission, requireOrgRole } = require('../../middlewares/requireAuth');
 
 // POST stays public — this is tenant signup (creating a brand-new organisation),
 // not an action an existing staff member performs.
 router.post('/', validate(schema.createOrganizationSchema), controller.create.bind(controller));
+
+// Self-service — org_admin has no seeded 'organisations' permission key
+// (that key is platform_owner/platform_admin only, for managing *other*
+// orgs), so an org_admin previously had no way to view or edit their own
+// org's profile at all. These three routes close that gap without touching
+// the platform-admin-only routes below. Must be registered before '/:id' or
+// Express would try to parse "me" as a UUID param.
+router.get('/me', requireAuth, controller.getMine.bind(controller));
+router.get('/me/modules', requireAuth, controller.getMyModules.bind(controller));
+router.patch(
+  '/me',
+  requireAuth,
+  requireOrgRole('org_admin'),
+  validate(schema.updateOwnOrganizationSchema),
+  controller.updateMine.bind(controller)
+);
 
 // 'organisations' read/write is platform_admin-only in seed.ts. requirePermission
 // works here the same way it does for any other role — it just checks the roles

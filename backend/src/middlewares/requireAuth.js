@@ -68,4 +68,31 @@ const requirePermission = (entity, action) => (req, res, next) => {
   next();
 };
 
-module.exports = { requireAuth, requirePermission };
+/**
+ * requireOrgRole — checks the caller holds a given *org-scoped* role
+ * (teamId === null on the user_team_role row — see 02-identity.ts).
+ * Use this for actions gated by role rather than a seeded permission key,
+ * e.g. "only org_admin may edit their own organisation's profile" — a
+ * permission platform_admin/platform_owner hold on *other* orgs' records,
+ * but org_admin was never granted a matching 'organisations' key for its own.
+ * Must run AFTER requireAuth.
+ *
+ * @param {string} roleName e.g. 'org_admin'
+ */
+const requireOrgRole = (roleName) => (req, res, next) => {
+  if (!req.user || !req.user.roles) {
+    return next(new UnauthorizedError('No roles found in token'));
+  }
+
+  const hasRole = req.user.roles.some(
+    (role) => role.roleName === roleName && (role.teamId === null || role.teamId === undefined)
+  );
+
+  if (!hasRole) {
+    return next(new ForbiddenError(`Requires the '${roleName}' role`));
+  }
+
+  next();
+};
+
+module.exports = { requireAuth, requirePermission, requireOrgRole };

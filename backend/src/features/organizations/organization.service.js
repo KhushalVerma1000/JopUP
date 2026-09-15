@@ -1,6 +1,7 @@
 const { db, schema } = require('../../utils/db');
 const { eq } = require('drizzle-orm');
-const { NotFoundError } = require('../../utils/errors');
+const bcrypt = require('bcryptjs');
+const { NotFoundError, BadRequestError } = require('../../utils/errors');
 
 class OrganizationService {
   async getAllOrganizations() {
@@ -20,10 +21,32 @@ class OrganizationService {
     return org;
   }
 
+  /**
+   * Creates the org and (optionally) its first org_admin user in one
+   * transaction. Before this, POST /organizations (public tenant signup)
+   * created only the org row — there was then no HTTP path to ever get an
+   * org_admin for it: self-registration caps out at hr/manager, and sending
+   * an invitation for the org_admin role requires already *being* an
+   * org_admin. The only way around it was a direct DB insert, same as
+   * platform_owner provisioning. Passing all four admin* fields here closes
+   * that gap for the common case (whoever signs up the org becomes its
+   * first admin); omitting them preserves the old org-only behavior for
+   * platform-admin-driven onboarding.
+   */
   async createOrganization(data) {
+    const { adminEmail, adminPassword, adminFirstName, adminLastName, adminPhone, ...orgData } = data;
+    const adminFieldCount = [adminEmail, adminPassword, adminFirstName, adminLastName]
+      .filter((f) => f !== undefined).length;
+
+    if (adminFieldCount > 0 && adminFieldCount < 4) {
+      throw new BadRequestError(
+        'adminEmail, adminPassword, adminFirstName, and adminLastName must all be provided together to create the first admin, or all omitted'
+      );
+    }
+
     return await db.transaction(async (tx) => {
-      const [newOrg] = await tx.insert(schema.organisation).values(data).returning();
-      
+      const [newOrg] = await tx.insert(schema.organisation).values(orgData).returning();
+
       // Also create a credit account for it
       await tx.insert(schema.creditAccount).values({
         organisationId: newOrg.id,
@@ -31,8 +54,46 @@ class OrganizationService {
         lifetimeEarned: 0,
         lifetimeSpent: 0
       });
-      
-      return newOrg;
+
+      let admin = null;
+      if (adminFieldCount === 4) {
+        const orgAdminRole = await tx.query.role.findFirst({
+          where: eq(schema.role.name, 'org_admin')
+        });
+        if (!orgAdminRole) {
+          throw new BadRequestError('org_admin role is not seeded — run `npm run db:seed` first');
+        }
+
+        const passwordHash = await bcrypt.hash(adminPassword, 10);
+        const [newAdmin] = await tx.insert(schema.user).values({
+          organisationId: newOrg.id,
+          email: adminEmail,
+          passwordHash,
+          firstName: adminFirstName,
+          lastName: adminLastName,
+          phone: adminPhone || null,
+          // Active immediately, no approval step — unlike hr/manager
+          // self-registration, this person IS the tenant; there's nobody
+          // above them in this brand-new org to approve the request.
+          status: 'active'
+        }).returning();
+
+        await tx.insert(schema.userTeamRole).values({
+          userId: newAdmin.id,
+          teamId: null,
+          roleId: orgAdminRole.id,
+          assignedBy: newAdmin.id
+        });
+
+        admin = {
+          id: newAdmin.id,
+          email: newAdmin.email,
+          firstName: newAdmin.firstName,
+          lastName: newAdmin.lastName
+        };
+      }
+
+      return { organisation: newOrg, admin };
     });
   }
 

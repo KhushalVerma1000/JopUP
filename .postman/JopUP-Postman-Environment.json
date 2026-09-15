@@ -1,0 +1,175 @@
+{
+  "id": "0e1518e1-719b-4ff1-a045-a5bc8bbadf46",
+  "name": "JopUP Local",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "platformOwnerToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "platformAdminUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "planId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "orgId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "orgSlug",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "orgAdminToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "managerToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "hrToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "seekerToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "managerUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "hrUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "invitationId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "invitationToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "teamId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "teamId2",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "clientId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "candidateId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "workflowTemplateId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "stageId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "stageId2",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "jobPostingId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "applicationId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "logId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "kpiId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "reviewId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "goalId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "strategyId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

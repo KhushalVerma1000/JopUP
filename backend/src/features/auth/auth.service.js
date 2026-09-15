@@ -163,6 +163,26 @@ class AuthService {
     );
   }
 
+  /**
+   * Fresh profile lookup for the "who am I" endpoint. Deliberately re-reads
+   * the DB rather than trusting the JWT payload for anything beyond
+   * userId/organisationId — status, name, avatar, etc. can all change after
+   * the token was issued (e.g. a suspension shouldn't wait for token expiry
+   * to be reflected in the UI, even though the token itself stays valid).
+   */
+  async getMe(organisationId, userId) {
+    const user = await db.query.user.findFirst({
+      where: and(
+        eq(schema.user.id, userId),
+        eq(schema.user.organisationId, organisationId)
+      ),
+    });
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+    return toPublicUser(user);
+  }
+
   async login(organisationSlug, email, password) {
     const org = await db.query.organisation.findFirst({
       where: eq(schema.organisation.slug, organisationSlug),
