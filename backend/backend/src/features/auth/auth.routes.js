@@ -1,0 +1,43 @@
+const express = require('express');
+const router = express.Router();
+const controller = require('./auth.controller');
+const validate = require('../../middlewares/validate');
+const schema = require('./auth.schema');
+const { requireAuth } = require('../../middlewares/requireAuth');
+const { loginLimiter, registerLimiter } = require('../../middlewares/rateLimit');
+
+// Public — staff self-registration (creates a 'pending_approval' account)
+router.post('/register', registerLimiter, validate(schema.registerStaffSchema), controller.registerStaff.bind(controller));
+
+// Public — staff login (rejects anything other than 'active' accounts)
+router.post('/login', loginLimiter, validate(schema.loginStaffSchema), controller.login.bind(controller));
+
+// Authenticated — "who am I". Every UI needs this on load: the JWT itself
+// carries roles/permissions, but not a trustworthy display name/avatar/status
+// (those can change after the token was issued — e.g. a suspension), so the
+// frontend should hydrate its session from here rather than decoding the JWT.
+router.get('/me', requireAuth, controller.me.bind(controller));
+
+// Manager / org_admin only — review self-registration requests.
+// Authorization (org_admin vs. manager-of-this-team) is enforced in the service layer,
+// since it depends on the *target* request's team, not a fixed permission key.
+router.get(
+  '/pending-approvals',
+  requireAuth,
+  validate(schema.listPendingApprovalsSchema),
+  controller.listPendingApprovals.bind(controller)
+);
+router.post(
+  '/pending-approvals/:userId/approve',
+  requireAuth,
+  validate(schema.approvalParamsSchema),
+  controller.approve.bind(controller)
+);
+router.post(
+  '/pending-approvals/:userId/reject',
+  requireAuth,
+  validate(schema.rejectStaffSchema),
+  controller.reject.bind(controller)
+);
+
+module.exports = router;

@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: jopup
+    ports:
+      - "5432:5432"
+    volumes:
+      - jopup_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/jopup
+      JWT_SECRET: dev-secret-change-me-for-docker-please-use-something-longer
+      JWT_EXPIRES_IN: 7d
+      NODE_ENV: development
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      # Bind-mount the source so edits on the Windows side show up without a
+      # rebuild, and so anything you drop into backend/ (like
+      # jopup-e2e-test.sh) is immediately visible inside the container.
+      - ./backend:/app
+      # Named volume for node_modules specifically, so the container uses
+      # its OWN Linux install rather than whatever got bind-mounted in from
+      # the host — the standard pattern for this, even though none of this
+      # project's current dependencies have native bindings that would
+      # actually break cross-platform.
+      - backend_node_modules:/app/node_modules
+    # db:migrate and db:seed are both safe to re-run (migrate tracks what's
+    # already applied; seed uses onConflictDoNothing) — running them on
+    # every `docker compose up` means a fresh clone "just works" with one
+    # command, no separate manual migrate/seed step.
+    command: sh -c "npm install && npm run db:migrate && npm run db:seed && npm start"
+
+volumes:
+  jopup_pg_data:
+  backend_node_modules:
