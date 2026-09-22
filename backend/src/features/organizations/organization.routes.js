@@ -25,6 +25,14 @@ router.patch(
   controller.updateMine.bind(controller)
 );
 
+// Public discovery for the login/register flows — no requireAuth. Must be
+// registered before '/:id' below, same reason as '/me': otherwise Express
+// would try to match "by-slug" itself as the :id param. See
+// organization.service.js's getPublicOrgBySlug/getPublicTeamsBySlug for
+// exactly what these do and don't expose.
+router.get('/by-slug/:slug', validate(schema.slugParamSchema), controller.getBySlug.bind(controller));
+router.get('/by-slug/:slug/teams', validate(schema.slugParamSchema), controller.getTeamsBySlug.bind(controller));
+
 // 'organisations' read/write is platform_admin-only in seed.ts. requirePermission
 // works here the same way it does for any other role — it just checks the roles
 // embedded in the caller's JWT — so this is a real restriction as soon as a

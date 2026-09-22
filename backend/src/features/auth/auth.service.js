@@ -1,5 +1,5 @@
 const { db, schema } = require('../../utils/db');
-const { eq, and, or, isNull } = require('drizzle-orm');
+const { eq, and, or, isNull, inArray } = require('drizzle-orm');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const {
@@ -273,7 +273,30 @@ class AuthService {
     }
 
     const rows = await db.select().from(schema.user).where(and(...conditions));
-    return rows.map(toPublicUser);
+
+    // Resolve requestedRoleId -> role name and requestedTeamId -> team name
+    // so the approver's UI can show what someone actually asked for —
+    // without exposing raw UUIDs (same principle as the org/team by-slug
+    // lookups) or needing a second round-trip. Cheap: only 5 global roles
+    // and a handful of teams per org.
+    const roleIds = [...new Set(rows.map((r) => r.requestedRoleId).filter(Boolean))];
+    const teamIds = [...new Set(rows.map((r) => r.requestedTeamId).filter(Boolean))];
+
+    const roleRows = roleIds.length
+      ? await db.select({ id: schema.role.id, name: schema.role.name }).from(schema.role).where(inArray(schema.role.id, roleIds))
+      : [];
+    const teamRows = teamIds.length
+      ? await db.select({ id: schema.team.id, name: schema.team.name }).from(schema.team).where(inArray(schema.team.id, teamIds))
+      : [];
+
+    const roleNameById = new Map(roleRows.map((r) => [r.id, r.name]));
+    const teamNameById = new Map(teamRows.map((t) => [t.id, t.name]));
+
+    return rows.map((r) => ({
+      ...toPublicUser(r),
+      requestedRoleName: roleNameById.get(r.requestedRoleId) || null,
+      requestedTeamName: teamNameById.get(r.requestedTeamId) || null,
+    }));
   }
 
   async approveStaff(organisationId, targetUserId, approverUserId) {

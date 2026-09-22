@@ -22,7 +22,13 @@ const tenant = (req, res, next) => {
     req.path.startsWith('/api/v1/portal') ||
     req.path.startsWith('/api/v1/auth') ||
     req.path === '/api/v1/invitations/accept' ||
-    (req.path === '/api/v1/organizations' && req.method === 'POST')
+    (req.path === '/api/v1/organizations' && req.method === 'POST') ||
+    // Public slug -> {id,name} / slug -> team-list lookups, added for the
+    // frontend's login/register flows (no requireAuth on these routes
+    // either — see organization.routes.js). Without this, an anonymous
+    // request with no Bearer token and no x-tenant-id header never reaches
+    // that route at all: this global middleware rejects it first.
+    req.path.startsWith('/api/v1/organizations/by-slug')
   ) {
     return next();
   }

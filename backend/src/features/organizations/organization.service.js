@@ -1,5 +1,5 @@
 const { db, schema } = require('../../utils/db');
-const { eq } = require('drizzle-orm');
+const { eq, and, inArray } = require('drizzle-orm');
 const bcrypt = require('bcryptjs');
 const { NotFoundError, BadRequestError } = require('../../utils/errors');
 
@@ -111,6 +111,52 @@ class OrganizationService {
 
       return { organisation: newOrg, admin };
     });
+  }
+
+  /**
+   * Public discovery for the frontend's login/register flows — the whole
+   * point of this method is that it's safe to call with NO auth, so it only
+   * ever returns {id, name, slug}. Never the full org row (plan, domain,
+   * credit info, etc. have no business being visible pre-login). Also only
+   * resolves 'active' orgs — a suspended/cancelled tenant's slug shouldn't
+   * be confirmable by an anonymous caller either.
+   */
+  async getPublicOrgBySlug(slug) {
+    const [org] = await db
+      .select({ id: schema.organisation.id, name: schema.organisation.name, slug: schema.organisation.slug })
+      .from(schema.organisation)
+      .where(
+        and(
+          eq(schema.organisation.slug, slug),
+          // 'trialing' is the DEFAULT status for a freshly signed-up org
+          // (confirmed in schema/02-identity.ts's org_status enum:
+          // trialing | active | suspended | cancelled) — a filter of just
+          // 'active' 404'd on every brand-new org, which is exactly the
+          // case this lookup most needs to work for. Only actually hide
+          // suspended/cancelled tenants.
+          inArray(schema.organisation.status, ['trialing', 'active'])
+        )
+      );
+
+    if (!org) {
+      throw new NotFoundError('Organization not found');
+    }
+
+    return org;
+  }
+
+  /**
+   * Same public-safety rule as getPublicOrgBySlug: only {id, name} per
+   * team, nothing else (no description, no member counts) — this exists
+   * solely so a self-registration form can offer a "pick your team" dropdown
+   * without the caller ever needing to know or type a raw team UUID.
+   */
+  async getPublicTeamsBySlug(slug) {
+    const org = await this.getPublicOrgBySlug(slug);
+    return await db
+      .select({ id: schema.team.id, name: schema.team.name })
+      .from(schema.team)
+      .where(eq(schema.team.organisationId, org.id));
   }
 
   async updateOrganization(id, data) {

@@ -38,6 +38,16 @@ const getOrgParamsSchema = z.object({
   })
 });
 
+// For the two public-discovery routes below (slug -> {id,name,slug}, and
+// slug -> team list for a signup dropdown). Deliberately just `slug`, no
+// format constraint beyond non-empty — slugs are arbitrary strings chosen
+// at signup, not UUIDs.
+const slugParamSchema = z.object({
+  params: z.object({
+    slug: z.string().min(1, 'Slug is required')
+  })
+});
+
 // Self-service update for an org_admin editing their own org (routed via
 // /organizations/me). Deliberately excludes planId, slug, and status —
 // those stay platform_admin-only via the existing /:id route, since they're
@@ -55,5 +65,6 @@ module.exports = {
   createOrganizationSchema,
   updateOrganizationSchema,
   getOrgParamsSchema,
+  slugParamSchema,
   updateOwnOrganizationSchema
 };

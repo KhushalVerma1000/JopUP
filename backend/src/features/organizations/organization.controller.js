@@ -18,6 +18,29 @@ class OrganizationController {
     });
   }
 
+  // Public discovery pair — see organization.service.js's docstrings for
+  // why these only ever return a few safe fields. No requireAuth on either
+  // (wired that way in organization.routes.js): this is what lets the
+  // frontend turn a slug typed/linked pre-login into a display name and a
+  // team picker, without ever showing or asking for a raw UUID.
+  async getBySlug(req, res) {
+    const { slug } = req.params;
+    const org = await orgService.getPublicOrgBySlug(slug);
+    res.json({
+      status: 'success',
+      data: { organization: org }
+    });
+  }
+
+  async getTeamsBySlug(req, res) {
+    const { slug } = req.params;
+    const teams = await orgService.getPublicTeamsBySlug(slug);
+    res.json({
+      status: 'success',
+      data: { teams }
+    });
+  }
+
   async create(req, res) {
     const { organisation: newOrg, admin } = await orgService.createOrganization(req.body);
     res.status(201).json({

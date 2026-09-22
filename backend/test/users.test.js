@@ -128,3 +128,15 @@ test('PATCH /api/v1/organizations/me allows org_admin', async () => {
     .send({ name: 'New Name' });
   assert.notEqual(response.status, 403);
 });
+
+test('GET /api/v1/organizations/by-slug/:slug requires no auth', async () => {
+  const response = await request(app).get('/api/v1/organizations/by-slug/some-slug');
+  // No DB in this test run — just confirm it never demands auth (401) for
+  // this deliberately-public route.
+  assert.notEqual(response.status, 401);
+});
+
+test('GET /api/v1/organizations/by-slug/:slug/teams requires no auth', async () => {
+  const response = await request(app).get('/api/v1/organizations/by-slug/some-slug/teams');
+  assert.notEqual(response.status, 401);
+});
