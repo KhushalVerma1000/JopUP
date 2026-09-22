@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', visibleTo: () => true },
   { to: '/employees', label: 'Employees', visibleTo: () => true },
+  { to: '/clients', label: 'Clients', visibleTo: () => true },
+  { to: '/managerial', label: 'Managerial', visibleTo: (ctx) => ctx.isOrgAdmin || ctx.isManager },
 ];
 
 export function AppLayout({ children }) {

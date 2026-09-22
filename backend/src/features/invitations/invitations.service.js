@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { db, schema } = require('../../utils/db');
-const { eq, and } = require('drizzle-orm');
+const { eq, and, inArray } = require('drizzle-orm');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { BadRequestError, NotFoundError, ConflictError } = require('../../utils/errors');
@@ -81,7 +81,33 @@ class InvitationsService {
   async list(organisationId, status) {
     const conditions = [eq(schema.invitation.organisationId, organisationId)];
     if (status) conditions.push(eq(schema.invitation.status, status));
-    return db.select().from(schema.invitation).where(and(...conditions));
+    const rows = await db.select().from(schema.invitation).where(and(...conditions));
+
+    // Same gap as auth.service.js's listPendingApprovals: roleId/teamId are
+    // raw UUIDs with no name resolution. Resolved here so the UI can show
+    // "Manager — Recruitment Team A" instead of two UUIDs. `token` is left
+    // as-is (not stripped) — with no email provider wired up, an org_admin
+    // needs to see and copy it to hand to the invitee directly; only
+    // org_admin can reach this endpoint at all (requirePermission('users',
+    // 'invite')), so this isn't exposed any wider than the token already is.
+    const roleIds = [...new Set(rows.map((r) => r.roleId).filter(Boolean))];
+    const teamIds = [...new Set(rows.map((r) => r.teamId).filter(Boolean))];
+
+    const roleRows = roleIds.length
+      ? await db.select({ id: schema.role.id, name: schema.role.name }).from(schema.role).where(inArray(schema.role.id, roleIds))
+      : [];
+    const teamRows = teamIds.length
+      ? await db.select({ id: schema.team.id, name: schema.team.name }).from(schema.team).where(inArray(schema.team.id, teamIds))
+      : [];
+
+    const roleNameById = new Map(roleRows.map((r) => [r.id, r.name]));
+    const teamNameById = new Map(teamRows.map((t) => [t.id, t.name]));
+
+    return rows.map((r) => ({
+      ...r,
+      roleName: roleNameById.get(r.roleId) || null,
+      teamName: teamNameById.get(r.teamId) || null,
+    }));
   }
 
   async revoke(organisationId, invitationId, revokedByUserId) {

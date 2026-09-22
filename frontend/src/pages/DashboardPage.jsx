@@ -19,15 +19,15 @@ const WORKBENCHES = [
     title: 'Clients',
     description: 'Client accounts and team sharing.',
     to: '/clients',
-    ready: false,
+    ready: true,
     visibleTo: () => true,
   },
   {
     key: 'managerial',
     title: 'Managerial',
-    description: 'Org settings, invitations, workflows, performance, credits.',
+    description: 'Org settings, invitations, and teams.',
     to: '/managerial',
-    ready: false,
+    ready: true,
     visibleTo: (ctx) => ctx.isOrgAdmin || ctx.isManager,
   },
 ];

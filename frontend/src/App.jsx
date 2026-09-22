@@ -5,6 +5,8 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { EmployeesPage } from './pages/EmployeesPage';
+import { ClientsPage } from './pages/ClientsPage';
+import { ManagerialPage } from './pages/ManagerialPage';
 
 export default function App() {
   return (
@@ -28,6 +30,22 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <EmployeesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/clients"
+            element={
+              <ProtectedRoute>
+                <ClientsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/managerial"
+            element={
+              <ProtectedRoute>
+                <ManagerialPage />
               </ProtectedRoute>
             }
           />
