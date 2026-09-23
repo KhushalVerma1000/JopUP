@@ -246,6 +246,37 @@ share-row expansion used a shorthand `<>` fragment inside a `.map()`, which can'
 carry a `key` — a genuine React correctness issue even though the linter didn't
 flag it. Fixed with an explicit `<Fragment key={...}>`.
 
+## Round 5 — HR workbench: Candidates, Job Postings, and the pipeline Tracker
+
+Built and verified against live data end to end: created a candidate, fetched a
+workflow template's stages, created an application, confirmed it appears in the
+tracker enriched, advanced it a stage, confirmed the list reflects the new stage.
+
+**The central gap for this round, found and fixed:** `applications.service.js`'s
+`getAllApplications` (the list endpoint) returned bare `application` rows — raw
+`candidateId`/`jobPostingId` UUIDs, and critically, **no current-stage information
+at all**. A pipeline tracker is not functional without knowing which stage each
+card belongs in, and the only way to get that was `getById` per application (an
+N+1 pattern for a list view). Fixed with a proper batch enrichment
+(`_enrichApplications`): one query for all current stage logs
+(`exitedAt IS NULL`), one for the stages they reference, one for candidate names,
+one for job posting titles — a handful of queries total regardless of list size,
+not N+1. Verified live: an existing test application correctly showed
+`currentStage: null` (it has no active stage log from earlier test data) — the
+enrichment handles that edge case correctly rather than crashing or guessing.
+
+**Frontend permission gating checked directly against `seed.ts`, not assumed:**
+hr lacks `job_postings:close` (so the Close button is hidden for hr, shown for
+org_admin/manager); candidate/job-posting delete is org_admin only; advance/hold/
+block on applications are available to all three roles.
+
+**Deliberately deferred, flagged rather than built:** full workflow *template*
+management (creating pipelines/stages) has no dedicated UI yet — the Tracker and
+Job Postings tabs consume existing templates via dropdowns, with a clear message
+if none exist yet. Template CRUD already works via the API (see Postman
+collection); it's more of an org-admin setup task than day-to-day HR work, so it
+was left out of this round's scope rather than rushed.
+
 ## New routes (the original ask, from earlier in this thread)
 
 `GET /api/v1/auth/me`, the full `/api/v1/users` employee-directory feature,

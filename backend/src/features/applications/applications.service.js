@@ -1,5 +1,5 @@
 const { db, schema } = require('../../utils/db');
-const { eq, and, isNull, asc } = require('drizzle-orm');
+const { eq, and, isNull, asc, inArray } = require('drizzle-orm');
 const { NotFoundError, BadRequestError } = require('../../utils/errors');
 const { emitEvent } = require('../../utils/events');
 const { auditWrite } = require('../../utils/audit');
@@ -12,7 +12,65 @@ class ApplicationsService {
     if (filters.teamId) conditions.push(eq(schema.application.teamId, filters.teamId));
     if (filters.jobPostingId) conditions.push(eq(schema.application.jobPostingId, filters.jobPostingId));
     
-    return await db.select().from(schema.application).where(and(...conditions));
+    const rows = await db.select().from(schema.application).where(and(...conditions));
+    return this._enrichApplications(rows);
+  }
+
+  /**
+   * A tracker is useless if every row just shows raw UUIDs — this is the
+   * same "resolve IDs to names server-side" principle used elsewhere in
+   * this codebase (pending-approvals, invitations), applied to the one
+   * place it matters most: the applications list is the actual pipeline
+   * tracker. Previously getAllApplications returned bare `application`
+   * rows with no current-stage, candidate, or job-posting info at all —
+   * the caller would have needed one extra request per row (getById does
+   * include currentLog) just to know which column of a kanban board a
+   * card belongs in. Batched into a handful of queries total, not N+1.
+   */
+  async _enrichApplications(rows) {
+    if (rows.length === 0) return [];
+
+    const appIds = rows.map((r) => r.id);
+    const candidateIds = [...new Set(rows.map((r) => r.candidateId).filter(Boolean))];
+    const jobPostingIds = [...new Set(rows.map((r) => r.jobPostingId).filter(Boolean))];
+
+    const [currentLogs, candidateRows, jobPostingRows] = await Promise.all([
+      db.select().from(schema.applicationStageLog).where(
+        and(inArray(schema.applicationStageLog.applicationId, appIds), isNull(schema.applicationStageLog.exitedAt))
+      ),
+      candidateIds.length
+        ? db.select({ id: schema.candidate.id, firstName: schema.candidate.firstName, lastName: schema.candidate.lastName })
+            .from(schema.candidate).where(inArray(schema.candidate.id, candidateIds))
+        : [],
+      jobPostingIds.length
+        ? db.select({ id: schema.jobPosting.id, title: schema.jobPosting.title })
+            .from(schema.jobPosting).where(inArray(schema.jobPosting.id, jobPostingIds))
+        : [],
+    ]);
+
+    const stageIds = [...new Set(currentLogs.map((l) => l.stageId).filter(Boolean))];
+    const stageRows = stageIds.length
+      ? await db.select({ id: schema.workflowStage.id, name: schema.workflowStage.name, stageKey: schema.workflowStage.stageKey, isFinalSuccess: schema.workflowStage.isFinalSuccess })
+          .from(schema.workflowStage).where(inArray(schema.workflowStage.id, stageIds))
+      : [];
+
+    const stageById = new Map(stageRows.map((s) => [s.id, s]));
+    const logByAppId = new Map(currentLogs.map((l) => [l.applicationId, l]));
+    const candidateById = new Map(candidateRows.map((c) => [c.id, c]));
+    const jobPostingById = new Map(jobPostingRows.map((j) => [j.id, j]));
+
+    return rows.map((app) => {
+      const log = logByAppId.get(app.id) || null;
+      const candidate = candidateById.get(app.candidateId) || null;
+      const jobPosting = app.jobPostingId ? jobPostingById.get(app.jobPostingId) || null : null;
+      return {
+        ...app,
+        candidateName: candidate ? `${candidate.firstName} ${candidate.lastName}` : null,
+        jobPostingTitle: jobPosting ? jobPosting.title : null,
+        currentStage: log ? stageById.get(log.stageId) || null : null,
+        currentStageEnteredAt: log ? log.enteredAt : null,
+      };
+    });
   }
 
   async getApplicationById(orgId, id) {

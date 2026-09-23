@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { ManagerialPage } from './pages/ManagerialPage';
+import { HrPage } from './pages/HrPage';
 
 export default function App() {
   return (
@@ -46,6 +47,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ManagerialPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hr"
+            element={
+              <ProtectedRoute>
+                <HrPage />
               </ProtectedRoute>
             }
           />

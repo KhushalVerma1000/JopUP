@@ -15,6 +15,14 @@ const WORKBENCHES = [
     visibleTo: () => true,
   },
   {
+    key: 'hr',
+    title: 'HR',
+    description: 'Candidates, job postings, and the pipeline tracker.',
+    to: '/hr',
+    ready: true,
+    visibleTo: () => true,
+  },
+  {
     key: 'clients',
     title: 'Clients',
     description: 'Client accounts and team sharing.',
