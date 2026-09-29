@@ -25,7 +25,9 @@ const registerStaffSchema = z.object({
 
 const loginStaffSchema = z.object({
   body: z.object({
-    organisationSlug: z.string().min(1, 'Organisation slug is required'),
+    // Optional: omit to log in by email alone. If the same email + password
+    // exists in several organisations the API asks the client to pick one.
+    organisationSlug: z.string().min(1).optional(),
     email: z.string().email('Invalid email address'),
     password: z.string().min(1, 'Password is required'),
   }),

@@ -12,7 +12,14 @@ class AuthController {
 
   async login(req, res) {
     const { organisationSlug, email, password } = req.body;
-    const { token, user, roles } = await authService.login(organisationSlug, email, password);
+    const result = await authService.login(organisationSlug, email, password);
+    if (result.orgSelectionRequired) {
+      return res.json({
+        status: 'success',
+        data: { orgSelectionRequired: true, organisations: result.organisations },
+      });
+    }
+    const { token, user, roles } = result;
     res.json({
       status: 'success',
       data: { token, user, roles },

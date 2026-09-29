@@ -2,32 +2,24 @@ import { useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useOrgLookup } from '../hooks/useOrgLookup';
-import { WorkspaceStep } from '../components/WorkspaceStep';
 import { ApiError } from '../lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 
+/**
+ * Sign in with email + password. No workspace ID needed:
+ *  - /login              -> email + password; if the same credentials exist
+ *                           in several workspaces, ask which one afterwards.
+ *  - /login/:orgSlug     -> same form, pre-scoped to that workspace (links
+ *                           from an admin/invite still work and show its name).
+ */
 export function LoginPage() {
   const { orgSlug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
-
-  // No slug in the URL at all (e.g. someone visited /login directly) — ask
-  // once, then move the slug into the URL so it's shareable/bookmarkable
-  // from here on, instead of a form field to remember and retype.
-  if (!orgSlug) {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-muted p-6">
-        <WorkspaceStep
-          title="Sign in"
-          onSubmit={(slug) => navigate(`/login/${encodeURIComponent(slug)}`, { replace: true })}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-svh items-center justify-center bg-muted p-6">
@@ -37,29 +29,38 @@ export function LoginPage() {
 }
 
 function LoginForm({ orgSlug, navigate, location, login }) {
+  // With no slug this resolves immediately to { organization: null, loading: false }.
   const { organization, loading, error: lookupError } = useOrgLookup(orgSlug);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  // Set when the backend says this email + password exists in 2+ workspaces.
+  const [choices, setChoices] = useState(null);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function attempt(slug) {
     setError(null);
     setSubmitting(true);
     try {
-      // The backend still needs the slug to disambiguate — email is only
-      // unique per-org, not globally — this just passes through the one
-      // already resolved from the URL, rather than the user typing it.
-      await login(orgSlug, email.trim(), password);
+      const result = await login(slug, email.trim(), password);
+      if (result.orgSelectionRequired) {
+        setChoices(result.organisations);
+        return;
+      }
       const redirectTo = location.state?.from?.pathname || '/dashboard';
       navigate(redirectTo, { replace: true });
     } catch (err) {
+      setChoices(null);
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    attempt(orgSlug);
   }
 
   if (loading) {
@@ -72,7 +73,8 @@ function LoginForm({ orgSlug, navigate, location, login }) {
     );
   }
 
-  if (lookupError) {
+  // A stale/wrong /login/:slug link — fall back to the plain form instead of a dead end.
+  if (orgSlug && lookupError) {
     return (
       <Card className="w-full max-w-sm">
         <CardHeader>
@@ -81,9 +83,49 @@ function LoginForm({ orgSlug, navigate, location, login }) {
         <CardContent className="flex flex-col gap-3">
           <p className="text-sm text-destructive">{lookupError}</p>
           <Link to="/login" className="text-sm underline underline-offset-4">
-            Try a different workspace
+            Sign in with just your email instead
           </Link>
         </CardContent>
+      </Card>
+    );
+  }
+
+  if (choices) {
+    return (
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle className="text-xl">Choose a workspace</CardTitle>
+          <CardDescription>
+            Your account exists in more than one workspace. Which one do you want to open?
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {choices.map((org) => (
+            <Button
+              key={org.slug}
+              type="button"
+              variant="outline"
+              className="w-full justify-start"
+              disabled={submitting}
+              onClick={() => attempt(org.slug)}
+            >
+              {org.name}
+            </Button>
+          ))}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </CardContent>
+        <CardFooter>
+          <button
+            type="button"
+            className="text-sm underline underline-offset-4"
+            onClick={() => {
+              setChoices(null);
+              setPassword('');
+            }}
+          >
+            Back
+          </button>
+        </CardFooter>
       </Card>
     );
   }
@@ -93,10 +135,12 @@ function LoginForm({ orgSlug, navigate, location, login }) {
       <form onSubmit={handleSubmit}>
         <CardHeader>
           <CardTitle className="text-xl">Sign in</CardTitle>
-          <CardDescription>
-            Workspace: <span className="font-medium text-foreground">{organization.name}</span>{' '}
-            · <Link to="/login" className="underline underline-offset-4">not you?</Link>
-          </CardDescription>
+          {organization && (
+            <CardDescription>
+              Workspace: <span className="font-medium text-foreground">{organization.name}</span>{' '}
+              · <Link to="/login" className="underline underline-offset-4">not you?</Link>
+            </CardDescription>
+          )}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="grid gap-2">
@@ -130,7 +174,10 @@ function LoginForm({ orgSlug, navigate, location, login }) {
           </Button>
           <p className="text-sm text-muted-foreground">
             New here?{' '}
-            <Link to={`/register/${encodeURIComponent(orgSlug)}`} className="underline underline-offset-4">
+            <Link
+              to={orgSlug ? `/register/${encodeURIComponent(orgSlug)}` : '/register'}
+              className="underline underline-offset-4"
+            >
               Request access
             </Link>
           </p>

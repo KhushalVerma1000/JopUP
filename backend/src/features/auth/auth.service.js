@@ -18,6 +18,15 @@ const PUBLIC_USER_FIELDS = [
   'avatarUrl', 'status', 'lastLoginAt', 'createdAt',
 ];
 
+// Lazily-built bcrypt hash used to burn the same time as a real password
+// check when no account matched, so response time doesn't reveal whether
+// an email exists.
+let dummyHash;
+function getDummyHash() {
+  if (!dummyHash) dummyHash = bcrypt.hashSync('jopup-timing-equaliser', 10);
+  return dummyHash;
+}
+
 function toPublicUser(user) {
   const out = {};
   for (const field of PUBLIC_USER_FIELDS) out[field] = user[field];
@@ -183,30 +192,78 @@ class AuthService {
     return toPublicUser(user);
   }
 
+  /**
+   * Log in with email + password. `organisationSlug` is optional.
+   *
+   * - Slug given (e.g. from a workspace link): look up that org's user,
+   *   exactly as before.
+   * - No slug: find every account with this email (email is only unique
+   *   per organisation) and keep only those whose password matches.
+   *     0 matches -> generic "Invalid credentials"
+   *     1 match   -> log straight in
+   *     2+ matches -> return { orgSelectionRequired, organisations } so the
+   *                   client can ask which one, then call again with a slug.
+   *   Org names are only ever revealed for accounts whose password the
+   *   caller has already proven, so this can't be used to probe which
+   *   emails exist in which orgs.
+   */
   async login(organisationSlug, email, password) {
-    const org = await db.query.organisation.findFirst({
-      where: eq(schema.organisation.slug, organisationSlug),
-    });
     // Deliberately generic error — don't reveal whether the org/email exists.
-    if (!org) {
-      throw new UnauthorizedError('Invalid credentials');
+    const invalid = () => new UnauthorizedError('Invalid credentials');
+
+    if (organisationSlug) {
+      const org = await db.query.organisation.findFirst({
+        where: eq(schema.organisation.slug, organisationSlug),
+      });
+      if (!org) {
+        await bcrypt.compare(password, getDummyHash());
+        throw invalid();
+      }
+      const user = await db.query.user.findFirst({
+        where: and(
+          eq(schema.user.email, email),
+          eq(schema.user.organisationId, org.id)
+        ),
+      });
+      if (!user || !user.passwordHash) {
+        await bcrypt.compare(password, getDummyHash());
+        throw invalid();
+      }
+      if (!(await bcrypt.compare(password, user.passwordHash))) throw invalid();
+      return this._completeLogin(user);
     }
 
-    const user = await db.query.user.findFirst({
-      where: and(
-        eq(schema.user.email, email),
-        eq(schema.user.organisationId, org.id)
-      ),
-    });
-    if (!user || !user.passwordHash) {
-      throw new UnauthorizedError('Invalid credentials');
+    const rows = await db
+      .select({ user: schema.user, org: schema.organisation })
+      .from(schema.user)
+      .innerJoin(schema.organisation, eq(schema.user.organisationId, schema.organisation.id))
+      .where(eq(schema.user.email, email));
+
+    const candidates = rows.filter((r) => r.user.passwordHash);
+    if (candidates.length === 0) {
+      // Equalise timing with the "email exists, wrong password" path.
+      await bcrypt.compare(password, getDummyHash());
+      throw invalid();
     }
 
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatches) {
-      throw new UnauthorizedError('Invalid credentials');
+    const matches = [];
+    for (const row of candidates) {
+      if (await bcrypt.compare(password, row.user.passwordHash)) matches.push(row);
     }
 
+    if (matches.length === 0) throw invalid();
+    if (matches.length === 1) return this._completeLogin(matches[0].user);
+
+    return {
+      orgSelectionRequired: true,
+      organisations: matches
+        .map((m) => ({ slug: m.org.slug, name: m.org.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
+
+  /** Status gate + token issue, shared by every login path. Password is already verified. */
+  async _completeLogin(user) {
     if (user.status === 'pending_approval') {
       throw new UnauthorizedError('Your registration is awaiting manager/admin approval');
     }

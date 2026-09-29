@@ -59,15 +59,23 @@ export function AuthProvider({ children }) {
       .finally(() => setInitializing(false));
   }, [clearSession]);
 
+  // `organisationSlug` is optional. Without it the backend finds the account
+  // by email + password; if that pair exists in more than one organisation
+  // it answers with { orgSelectionRequired, organisations } instead of a
+  // token, and we hand that back so the login form can ask which one —
+  // then call login() again with the chosen slug. No session is created in
+  // that case.
   const login = useCallback(async (organisationSlug, email, password) => {
-    const res = await apiFetch('/api/v1/auth/login', {
-      method: 'POST',
-      body: { organisationSlug, email, password },
-    });
+    const body = { email, password };
+    if (organisationSlug) body.organisationSlug = organisationSlug;
+    const res = await apiFetch('/api/v1/auth/login', { method: 'POST', body });
+    if (res.data.orgSelectionRequired) {
+      return { orgSelectionRequired: true, organisations: res.data.organisations };
+    }
     setToken(res.data.token);
     setUser(res.data.user);
     setRoles(res.data.roles);
-    return res.data.user;
+    return { orgSelectionRequired: false, user: res.data.user };
   }, []);
 
   const register = useCallback(async (fields) => {

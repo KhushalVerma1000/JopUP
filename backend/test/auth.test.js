@@ -58,6 +58,15 @@ test('POST /api/v1/auth/login validates a well-formed request', async () => {
   assert.ok([200, 401, 500, 503].includes(response.status), `Unexpected status: ${response.status}`);
 });
 
+test('POST /api/v1/auth/login validates a request with no organisationSlug', async () => {
+  const response = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email: 'hr@example.com', password: 'password123' });
+  // Slug is optional now; must pass validation (DB may be unavailable in CI).
+  assert.notEqual(response.status, 400);
+  assert.ok([200, 401, 500, 503].includes(response.status), `Unexpected status: ${response.status}`);
+});
+
 // Keep this LAST among /login tests — it deliberately exhausts the rate-limit
 // window for this process's IP, so any /login test after it would see 429.
 test('POST /api/v1/auth/login is rate-limited after repeated attempts', async () => {
