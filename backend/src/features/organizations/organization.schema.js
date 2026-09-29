@@ -7,6 +7,11 @@ const createOrganizationSchema = z.object({
     planId: z.string().uuid('Invalid plan ID'),
     domain: z.string().optional(),
     timezone: z.string().optional(),
+    // ISO 3166-1 alpha-2 (e.g. "IN", "US", "GB") — pre-fills the phone
+    // country picker for this org's candidates going forward; never a
+    // hard assumption (see 02-identity.ts / ADR-2). This platform is used
+    // globally, so it's optional, not defaulted to any one country.
+    defaultCountry: z.string().length(2, 'Use a 2-letter country code (e.g. "IN", "US")').optional(),
     // Optional — when all four are provided, the org's first org_admin user
     // is created in the same transaction (see organization.service.js for
     // why this exists: without it, a self-signed-up org has no way to ever
@@ -57,7 +62,8 @@ const updateOwnOrganizationSchema = z.object({
     name: z.string().min(1).optional(),
     domain: z.string().optional(),
     logoUrl: z.string().optional(),
-    timezone: z.string().optional()
+    timezone: z.string().optional(),
+    defaultCountry: z.string().length(2, 'Use a 2-letter country code (e.g. "IN", "US")').optional()
   })
 });
 

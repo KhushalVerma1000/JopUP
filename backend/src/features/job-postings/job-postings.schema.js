@@ -6,6 +6,9 @@ const createJobPostingSchema = z.object({
     description: z.string().min(1, 'Description is required'),
     teamId: z.string().uuid('Invalid team ID'),
     clientId: z.string().uuid('Invalid client ID').optional(),
+    // Nullable at the schema level (05-job-postings.ts) — a posting can be
+    // raised before a formal requisition exists. Omit when there is none yet.
+    openPositionId: z.string().uuid('Invalid open position ID').optional(),
     workflowTemplateId: z.string().uuid('Invalid template ID').optional(),
     requirements: z.string().optional(),
     benefits: z.string().optional(),

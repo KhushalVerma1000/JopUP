@@ -15,6 +15,11 @@
  *   - status flow: draft → published → closed | archived
  *   - posting is linked to a workflow_template_id so every application
  *     from this posting follows the correct pipeline automatically
+ *   - open_position_id is nullable and deliberately so: an HR filling a
+ *     slot ad-hoc, before a formal requisition (open_position) exists, is
+ *     a real workflow — this is the pluggable-channel design from
+ *     open-position.ts: a posting is one advertised channel *for* a
+ *     position, not the position itself, but it can exist without one.
  */
 
 import {
@@ -31,6 +36,7 @@ import { sql } from "drizzle-orm";
 import { pkUuid, orgId, timestamps } from "./_helpers";
 import { organisation, team, user } from "./02-identity";
 import { client } from "./03-clients";
+import { openPosition } from "./17-open-position";
 
 // ─── Enums ───────────────────────────────────
 
@@ -73,6 +79,11 @@ export const jobPosting = pgTable("job_posting", {
   clientId:             uuid("client_id").references(() => client.id, { onDelete: "set null" }),
   createdBy:            uuid("created_by").notNull().references(() => user.id),
 
+  // Nullable — see module docstring. Set when this posting was raised
+  // against a formal requisition; null for an ad-hoc posting made before
+  // one exists.
+  openPositionId:       uuid("open_position_id").references(() => openPosition.id, { onDelete: "set null" }),
+
   // Workflow template applied to all applications from this posting
   // NULL = use team default (resolved at application creation time)
   workflowTemplateId:   uuid("workflow_template_id"),
@@ -110,4 +121,5 @@ export const jobPosting = pgTable("job_posting", {
   index("job_team_idx").on(t.teamId),
   index("job_status_idx").on(t.status),
   index("job_client_idx").on(t.clientId),
+  index("job_open_position_idx").on(t.openPositionId),
 ]);

@@ -15,7 +15,7 @@
  *   04 Candidates    → candidate database
  *   05 Job Postings  → vacancy listings
  *   06 Workflow      → pipeline templates + stages
- *   07 Pipeline      → applications, stage log, actions, documents
+ *   07 Application   → formal apply events + documents (status lives on 18)
  *   08 Performance   → KPIs, reviews, goals, strategy
  *   09 Credits       → credit accounts, transactions, pricing
  *   10 Events/Audit  → event bus + audit log
@@ -25,6 +25,8 @@
  *   14 Employee HR   → internal staff profiles, payroll (PowerEmp)
  *   15 Bench         → bench sales, prospect pipeline (BenchPro)
  *   16 Communication  → client SPOC directory + targeted mailer (trackers, updates)
+ *   17 Open Positions → requisitions (root of hiring demand; job_posting is one channel)
+ *   18 Candidate Tracker → live pipeline (ADR-1: replaces module 07's old stage tracking)
  *
  * Modules 12–16 bring the schema in line with the full Vybog Tal
  * seven-module suite (Recruit, Parser, CRM, FinMa, PowerEmp, BenchPro,
@@ -86,23 +88,34 @@ export {
   employmentTypeEnum,
 } from "./05-job-postings";
 
+// ── Module 17: Open Positions ─────────────────────────────────
+export {
+  openPosition,
+  openPositionStatusEnum,
+} from "./17-open-position";
+
 // ── Module 06: Workflow Engine ────────────────────────────────
 export {
   workflowTemplate,
   workflowStage,
 } from "./06-workflow";
 
-// ── Module 07: Pipeline Tracker ───────────────────────────────
+// ── Module 07: Application (formal apply event) ────────────────
 export {
   application,
-  applicationStageLog,
-  stageAction,
   document,
-  applicationStatusEnum,
-  stageLogStatusEnum,
-  stageActionTypeEnum,
   documentTypeEnum,
 } from "./07-pipeline";
+
+// ── Module 18: Candidate Tracker (live pipeline) ───────────────
+export {
+  candidateTracker,
+  candidateTrackerStageLog,
+  candidateTrackerAction,
+  trackerStatusEnum,
+  trackerStageLogStatusEnum,
+  trackerActionTypeEnum,
+} from "./18-candidate-tracker";
 
 // ── Module 08: Performance & Strategy ────────────────────────
 export {

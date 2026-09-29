@@ -86,6 +86,12 @@ export const organisation = pgTable("organisation", {
   status:       orgStatusEnum("status").notNull().default("trialing"),
   trialEndsAt:  timestamp("trial_ends_at", { withTimezone: true }),
   timezone:     text("timezone").default("UTC"),
+  // ISO 3166-1 alpha-2 (e.g. "IN", "US", "GB"). Not a hard default to "IN" —
+  // this platform is used globally, so this is set explicitly at org
+  // onboarding and only pre-fills the phone-country picker; it never
+  // silently assumes a country for candidate/client data (see
+  // 04-candidates.ts's phoneCountry field).
+  defaultCountry: text("default_country"),
   ...timestamps,
 }, (t) => [
   index("org_plan_idx").on(t.planId),

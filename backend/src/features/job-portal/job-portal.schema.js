@@ -7,10 +7,17 @@ const portalSubmitApplicationSchema = z.object({
     lastName: z.string().min(1, 'Last name is required'),
     email: z.string().email('Invalid email'),
     phone: z.string().optional(),
+    // ISO 3166-1 alpha-2 — required alongside phone (see 04-candidates.ts /
+    // ADR-2). A public applicant could be based anywhere, so this platform
+    // never guesses their country from the org's own location.
+    phoneCountry: z.string().length(2, 'Use a 2-letter country code (e.g. "IN", "US")').optional(),
     location: z.string().optional(),
     linkedinUrl: z.string().url().optional(),
     resumeUrl: z.string().url().optional(),
     coverLetter: z.string().optional()
+  }).refine((body) => !body.phone || Boolean(body.phoneCountry), {
+    message: 'phoneCountry is required when phone is provided',
+    path: ['phoneCountry'],
   })
 });
 

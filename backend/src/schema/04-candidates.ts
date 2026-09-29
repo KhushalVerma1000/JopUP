@@ -84,10 +84,30 @@ export const candidate = pgTable("candidate", {
   updatedBy:       uuid("updated_by").references(() => user.id),
 
   // Core identity
+  // lastName is nullable: HR's quick-add flow (see candidate_tracker) creates
+  // a candidate from just a first name + phone number, so a full name isn't
+  // available yet. Backfilled later when the candidate's resume is added.
   firstName:       text("first_name").notNull(),
-  lastName:        text("last_name").notNull(),
+  lastName:        text("last_name"),
   email:           text("email"),
+  // phone: exactly as entered/selected — kept for display, never parsed at
+  // read time. phoneCountry (ISO 3166-1 alpha-2, e.g. "IN", "US", "GB",
+  // "AE") is the country the phone was entered against, always required
+  // alongside a phone so the number is never ambiguous — this is a global
+  // platform, so a bare "9876543210" is not assumed to be Indian. HR's
+  // country picker pre-fills from organisation.defaultCountry but the org
+  // is free to place candidates or work with clients in any country.
+  // phoneNormalized is the E.164 form (libphonenumber-js), computed once at
+  // write time in candidates.service.js / trackers.service.js — this is the
+  // actual duplicate-detection key (see ADR-2): matching is phone-only,
+  // never combined with name, since name variance causes false negatives
+  // and common-name collisions cause false positives in the other
+  // direction. Null when phone is missing or fails to parse as a valid
+  // number for the given country — an unparseable phone just skips dedup,
+  // it never blocks candidate creation.
   phone:           text("phone"),
+  phoneCountry:    text("phone_country"),
+  phoneNormalized: text("phone_normalized"),
   location:        text("location"),
   linkedinUrl:     text("linkedin_url"),
 
@@ -120,6 +140,11 @@ export const candidate = pgTable("candidate", {
   index("candidate_team_idx").on(t.ownerTeamId),
   index("candidate_status_idx").on(t.status),
   index("candidate_email_org_idx").on(t.organisationId, t.email),
+  // Soft-dedup lookup index for ADR-2 — not a hard unique constraint,
+  // since a shared family phone across two real, distinct candidates is a
+  // legitimate case the service layer resolves with a warning, not a
+  // rejection.
+  index("candidate_phone_org_idx").on(t.organisationId, t.phoneNormalized),
 ]);
 
 /**

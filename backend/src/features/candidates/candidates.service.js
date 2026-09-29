@@ -1,7 +1,8 @@
 const { db, schema } = require('../../utils/db');
 const { eq, and, or, sql, inArray } = require('drizzle-orm');
-const { NotFoundError, ConflictError } = require('../../utils/errors');
+const { NotFoundError, ConflictError, PossibleDuplicateError } = require('../../utils/errors');
 const { auditWrite } = require('../../utils/audit');
+const { normalizePhone } = require('../../utils/phone');
 
 class CandidatesService {
   async getAllCandidates(orgId, teamId) {
@@ -56,8 +57,28 @@ class CandidatesService {
       }
     }
 
+    // ADR-2: dedup on normalized phone alone, never phone+name (see
+    // utils/phone.js). A warning, not a hard block — confirmDuplicate
+    // lets the caller proceed once the user has seen the match.
+    const phoneNormalized = normalizePhone(data.phone, data.phoneCountry);
+    if (phoneNormalized && !data.confirmDuplicate) {
+      const existingByPhone = await db.query.candidate.findFirst({
+        where: and(
+          eq(schema.candidate.phoneNormalized, phoneNormalized),
+          eq(schema.candidate.organisationId, orgId)
+        )
+      });
+
+      if (existingByPhone) {
+        throw new PossibleDuplicateError(existingByPhone);
+      }
+    }
+
+    const { confirmDuplicate, ...candidateData } = data;
+
     const [newCandidate] = await db.insert(schema.candidate).values({
-      ...data,
+      ...candidateData,
+      phoneNormalized,
       organisationId: orgId,
       createdBy: userId
     }).returning();
@@ -69,10 +90,19 @@ class CandidatesService {
 
   async updateCandidate(orgId, id, data, userId) {
     const oldCandidate = await this.getCandidateById(orgId, id);
-    
+
+    const updateData = { ...data };
+    if ('phone' in updateData || 'phoneCountry' in updateData) {
+      updateData.phoneNormalized = normalizePhone(
+        updateData.phone ?? oldCandidate.phone,
+        updateData.phoneCountry ?? oldCandidate.phoneCountry
+      );
+    }
+    delete updateData.confirmDuplicate;
+
     const [updatedCandidate] = await db
       .update(schema.candidate)
-      .set({ ...data, updatedBy: userId, updatedAt: new Date() })
+      .set({ ...updateData, updatedBy: userId, updatedAt: new Date() })
       .where(and(eq(schema.candidate.id, id), eq(schema.candidate.organisationId, orgId)))
       .returning();
       
