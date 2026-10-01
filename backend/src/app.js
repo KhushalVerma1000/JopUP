@@ -21,6 +21,7 @@ const applicationsRoutes = require('./features/applications/applications.routes'
 const trackersRoutes = require('./features/trackers/trackers.routes');
 const performanceRoutes = require('./features/performance/performance.routes');
 const creditsRoutes = require('./features/credits/credits.routes');
+const platformRoutes = require('./features/platform/platform.routes');
 const portalRoutes = require('./features/job-portal/job-portal.routes');
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/v1/trackers', trackersRoutes);
 app.use('/api/v1/performance', performanceRoutes);
 app.use('/api/v1/credits', creditsRoutes);
 app.use('/api/v1/portal', portalRoutes);
+app.use('/api/v1/platform', platformRoutes);
 
 // Centralized Error Handling Middleware
 app.use(errorHandler);

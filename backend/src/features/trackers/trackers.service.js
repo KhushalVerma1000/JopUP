@@ -1,5 +1,5 @@
 const { db, schema } = require('../../utils/db');
-const { eq, and, isNull, asc, inArray } = require('drizzle-orm');
+const { eq, and, isNull, asc, desc, inArray } = require('drizzle-orm');
 const { NotFoundError, BadRequestError, PossibleDuplicateError } = require('../../utils/errors');
 const { emitEvent } = require('../../utils/events');
 const { auditWrite } = require('../../utils/audit');
@@ -290,6 +290,36 @@ class TrackersService {
       await auditWrite(orgId, userId, 'hold', 'candidate_tracker', trackerId, currentLog, updatedTracker, 'pipeline');
 
       return updatedTracker;
+    });
+  }
+
+  /**
+   * Counterpart to holdTracker: holding closes the current stage log and
+   * flips the tracker to 'on_hold', which left no way back (advanceStage
+   * needs an open log). Resuming re-opens the most recently held stage.
+   */
+  async resumeTracker(orgId, trackerId, userId) {
+    return await db.transaction(async (tx) => {
+      const [tracker] = await tx.select().from(schema.candidateTracker).where(
+        and(eq(schema.candidateTracker.id, trackerId), eq(schema.candidateTracker.organisationId, orgId))
+      );
+      if (!tracker) throw new NotFoundError('Tracker not found');
+      if (tracker.status !== 'on_hold') throw new BadRequestError('Only a tracker that is on hold can be resumed');
+
+      const [lastHeld] = await tx.select().from(schema.candidateTrackerStageLog).where(
+        and(eq(schema.candidateTrackerStageLog.trackerId, trackerId), eq(schema.candidateTrackerStageLog.status, 'held'))
+      ).orderBy(desc(schema.candidateTrackerStageLog.enteredAt)).limit(1);
+      if (!lastHeld) throw new BadRequestError('No held stage found to resume');
+
+      const [newLog] = await tx.insert(schema.candidateTrackerStageLog).values({
+        trackerId, stageId: lastHeld.stageId, movedBy: userId, status: 'active',
+      }).returning();
+      const [updated] = await tx.update(schema.candidateTracker)
+        .set({ status: 'active', updatedAt: new Date() })
+        .where(eq(schema.candidateTracker.id, trackerId)).returning();
+
+      await auditWrite(orgId, userId, 'resume', 'candidate_tracker', trackerId, tracker, updated, 'pipeline');
+      return updated;
     });
   }
 

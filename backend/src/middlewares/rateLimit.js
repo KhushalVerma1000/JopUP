@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 // automated attempt at scale.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -27,4 +27,15 @@ const registerLimiter = rateLimit({
   },
 });
 
-module.exports = { loginLimiter, registerLimiter };
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: Number(process.env.SIGNUP_RATE_LIMIT_MAX) || 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: 'fail',
+    message: 'Too many sign-up attempts from this address. Please try again later.',
+  },
+});
+
+module.exports = { loginLimiter, registerLimiter, signupLimiter };

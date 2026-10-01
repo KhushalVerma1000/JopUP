@@ -21,7 +21,7 @@ export function WorkspaceStep({ title, onSubmit }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full">
       <form onSubmit={handleSubmit}>
         <CardHeader>
           <CardTitle className="text-xl">{title}</CardTitle>

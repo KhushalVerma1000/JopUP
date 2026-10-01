@@ -10,6 +10,15 @@ class AuthController {
     });
   }
 
+  async signup(req, res) {
+    const { token, user, roles, organisation, subscription } = await authService.signupOrganisation(req.body);
+    res.status(201).json({
+      status: 'success',
+      message: 'Workspace created. Your free trial has started.',
+      data: { token, user, roles, organisation, subscription },
+    });
+  }
+
   async login(req, res) {
     const { organisationSlug, email, password } = req.body;
     const result = await authService.login(organisationSlug, email, password);

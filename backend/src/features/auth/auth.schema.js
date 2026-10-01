@@ -33,6 +33,24 @@ const loginStaffSchema = z.object({
   }),
 });
 
+// Self-serve workspace signup: creates the organisation, its first
+// org_admin (active immediately), a default team, and a trial subscription.
+// The slug is generated server-side from companyName so nobody has to invent
+// or remember one. planSlug is optional (defaults to 'starter').
+const signupSchema = z.object({
+  body: z.object({
+    companyName: z.string().trim().min(2, 'Company name is required').max(80),
+    planSlug: z.string().min(1).optional(),
+    firstName: z.string().trim().min(1, 'First name is required'),
+    lastName: z.string().trim().min(1, 'Last name is required'),
+    email: z.string().email('Invalid email address'),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    phone: z.string().optional(),
+    defaultCountry: z.string().length(2, 'Use a 2-letter country code').optional(),
+    timezone: z.string().optional(),
+  }),
+});
+
 const listPendingApprovalsSchema = z.object({
   query: z.object({
     teamId: z.string().uuid('Invalid team ID').optional(),
@@ -58,6 +76,7 @@ module.exports = {
   SELF_REGISTERABLE_ROLES,
   registerStaffSchema,
   loginStaffSchema,
+  signupSchema,
   listPendingApprovalsSchema,
   approvalParamsSchema,
   rejectStaffSchema,

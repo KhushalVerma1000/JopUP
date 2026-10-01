@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
+import { useNavigate, useLocation, useParams, Link, Navigate } from 'react-router-dom';
+import { AuthShell } from '../components/AuthShell';
 import { useAuth } from '../context/AuthContext';
 import { useOrgLookup } from '../hooks/useOrgLookup';
 import { ApiError } from '../lib/api';
@@ -19,12 +20,15 @@ export function LoginPage() {
   const { orgSlug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, isAuthenticated, homePath } = useAuth();
+
+  // Already signed in (e.g. followed a bookmark) — skip the form.
+  if (isAuthenticated) return <Navigate to={homePath} replace />;
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted p-6">
+    <AuthShell>
       <LoginForm orgSlug={orgSlug} navigate={navigate} location={location} login={login} />
-    </div>
+    </AuthShell>
   );
 }
 
@@ -48,7 +52,8 @@ function LoginForm({ orgSlug, navigate, location, login }) {
         setChoices(result.organisations);
         return;
       }
-      const redirectTo = location.state?.from?.pathname || '/dashboard';
+      // No saved destination -> '/', which sends each role to its own home.
+      const redirectTo = location.state?.from?.pathname || '/';
       navigate(redirectTo, { replace: true });
     } catch (err) {
       setChoices(null);
@@ -65,7 +70,7 @@ function LoginForm({ orgSlug, navigate, location, login }) {
 
   if (loading) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full">
         <CardContent className="pt-6 text-sm text-muted-foreground">
           Looking up workspace…
         </CardContent>
@@ -76,7 +81,7 @@ function LoginForm({ orgSlug, navigate, location, login }) {
   // A stale/wrong /login/:slug link — fall back to the plain form instead of a dead end.
   if (orgSlug && lookupError) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="text-xl">Sign in</CardTitle>
         </CardHeader>
@@ -92,7 +97,7 @@ function LoginForm({ orgSlug, navigate, location, login }) {
 
   if (choices) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="text-xl">Choose a workspace</CardTitle>
           <CardDescription>
@@ -131,7 +136,7 @@ function LoginForm({ orgSlug, navigate, location, login }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full">
       <form onSubmit={handleSubmit}>
         <CardHeader>
           <CardTitle className="text-xl">Sign in</CardTitle>
@@ -151,7 +156,8 @@ function LoginForm({ orgSlug, navigate, location, login }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
-              autoFocus
+              inputMode="email"
+              autoCapitalize="none"
               required
             />
           </div>
@@ -172,15 +178,23 @@ function LoginForm({ orgSlug, navigate, location, login }) {
           <Button type="submit" className="w-full" disabled={submitting}>
             {submitting ? 'Signing in…' : 'Sign in'}
           </Button>
-          <p className="text-sm text-muted-foreground">
-            New here?{' '}
-            <Link
-              to={orgSlug ? `/register/${encodeURIComponent(orgSlug)}` : '/register'}
-              className="underline underline-offset-4"
-            >
-              Request access
-            </Link>
-          </p>
+          <div className="flex w-full flex-col gap-2 text-center text-sm text-muted-foreground">
+            <p>
+              Joining an existing team?{' '}
+              <Link
+                to={orgSlug ? `/register/${encodeURIComponent(orgSlug)}` : '/register'}
+                className="font-medium text-foreground underline underline-offset-4"
+              >
+                Request access
+              </Link>
+            </p>
+            <p>
+              Setting up your company?{' '}
+              <Link to="/signup" className="font-medium text-foreground underline underline-offset-4">
+                Create a workspace
+              </Link>
+            </p>
+          </div>
         </CardFooter>
       </form>
     </Card>

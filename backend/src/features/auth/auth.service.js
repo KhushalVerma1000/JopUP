@@ -33,6 +33,18 @@ function toPublicUser(user) {
   return out;
 }
 
+const TRIAL_FALLBACK_DAYS = 14;
+
+function slugify(text) {
+  return String(text)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'workspace';
+}
+
 class AuthService {
   /**
    * Load a user's active team roles, shaped for the requireAuth JWT
@@ -147,6 +159,124 @@ class AuthService {
     );
 
     return toPublicUser(newUser);
+  }
+
+  /** Finds a free slug: acme-recruiting, acme-recruiting-2, ... */
+  async _uniqueSlug(base) {
+    for (let i = 1; i < 50; i++) {
+      const candidate = i === 1 ? base : `${base}-${i}`;
+      const [hit] = await db
+        .select({ id: schema.organisation.id })
+        .from(schema.organisation)
+        .where(eq(schema.organisation.slug, candidate));
+      if (!hit) return candidate;
+    }
+    return `${base}-${Date.now().toString(36)}`;
+  }
+
+  /**
+   * Self-serve signup. One transaction creates: organisation (trialing),
+   * credit account, a default "General" team, the first org_admin (active),
+   * and a 'trialing' subscription. No payment is taken here — the
+   * subscription row deliberately has paymentProvider/paymentRef null; the
+   * payment module will attach a provider customer to it at checkout and
+   * flip status to 'active'. Returns a session so the client can log in
+   * straight away.
+   */
+  async signupOrganisation(data) {
+    const planSlug = data.planSlug || 'starter';
+    const [plan] = await db.select().from(schema.plan).where(eq(schema.plan.slug, planSlug));
+    if (!plan || plan.status !== 'active' || !plan.isPublic) {
+      throw new BadRequestError('That plan is not available');
+    }
+
+    const orgAdminRole = await db.query.role.findFirst({ where: eq(schema.role.name, 'org_admin') });
+    if (!orgAdminRole) {
+      throw new BadRequestError('org_admin role is not seeded — run `npm run db:seed` first');
+    }
+
+    const slug = await this._uniqueSlug(slugify(data.companyName));
+    const passwordHash = await bcrypt.hash(data.password, 10);
+    const trialDays = plan.trialDays || TRIAL_FALLBACK_DAYS;
+    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    const { org, admin, sub } = await db.transaction(async (tx) => {
+      const [org] = await tx
+        .insert(schema.organisation)
+        .values({
+          planId: plan.id,
+          name: data.companyName,
+          slug,
+          status: 'trialing',
+          trialEndsAt,
+          timezone: data.timezone || 'UTC',
+          defaultCountry: data.defaultCountry ? data.defaultCountry.toUpperCase() : null,
+        })
+        .returning();
+
+      await tx.insert(schema.creditAccount).values({
+        organisationId: org.id,
+        balance: plan.creditAllowance || 0,
+        lifetimeEarned: plan.creditAllowance || 0,
+        lifetimeSpent: 0,
+      });
+
+      const [admin] = await tx
+        .insert(schema.user)
+        .values({
+          organisationId: org.id,
+          email: data.email,
+          passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone || null,
+          status: 'active',
+        })
+        .returning();
+
+      await tx.insert(schema.userTeamRole).values({
+        userId: admin.id,
+        teamId: null,
+        roleId: orgAdminRole.id,
+        assignedBy: admin.id,
+      });
+
+      // Every org needs at least one team before staff can self-register
+      // (the register form's team dropdown would otherwise be empty).
+      await tx.insert(schema.team).values({
+        organisationId: org.id,
+        name: 'General',
+        description: 'Default team — rename or add more in Managerial',
+      });
+
+      const [sub] = await tx
+        .insert(schema.subscription)
+        .values({
+          organisationId: org.id,
+          planId: plan.id,
+          status: 'trialing',
+          billingCycle: 'monthly',
+          paymentProvider: null,
+          paymentRef: null,
+          currentPeriodStart: now,
+          currentPeriodEnd: trialEndsAt,
+          trialEndsAt,
+        })
+        .returning();
+
+      return { org, admin, sub };
+    });
+
+    await auditWrite(org.id, admin.id, 'create', 'organisation', org.id, null,
+      { name: org.name, slug: org.slug, plan: plan.slug, via: 'self_signup' }, 'auth');
+
+    const session = await this._completeLogin(admin);
+    return {
+      ...session,
+      organisation: { id: org.id, name: org.name, slug: org.slug, status: org.status, trialEndsAt },
+      subscription: { id: sub.id, status: sub.status, plan: { slug: plan.slug, name: plan.name }, trialEndsAt },
+    };
   }
 
   /**
@@ -275,6 +405,16 @@ class AuthService {
     }
     if (user.status !== 'active') {
       throw new UnauthorizedError('Account is not active');
+    }
+
+    // A suspended/cancelled workspace locks everyone in it out, not just
+    // new sign-ins to the public lookup (which already hides such orgs).
+    const [org] = await db
+      .select({ status: schema.organisation.status })
+      .from(schema.organisation)
+      .where(eq(schema.organisation.id, user.organisationId));
+    if (org && (org.status === 'suspended' || org.status === 'cancelled')) {
+      throw new UnauthorizedError('This workspace is suspended. Contact JopUP support');
     }
 
     const roles = await this.getActiveRoles(user.id);

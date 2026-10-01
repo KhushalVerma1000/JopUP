@@ -4,10 +4,14 @@ const controller = require('./auth.controller');
 const validate = require('../../middlewares/validate');
 const schema = require('./auth.schema');
 const { requireAuth } = require('../../middlewares/requireAuth');
-const { loginLimiter, registerLimiter } = require('../../middlewares/rateLimit');
+const { loginLimiter, registerLimiter, signupLimiter } = require('../../middlewares/rateLimit');
 
 // Public — staff self-registration (creates a 'pending_approval' account)
 router.post('/register', registerLimiter, validate(schema.registerStaffSchema), controller.registerStaff.bind(controller));
+
+// Public — self-serve workspace signup (org + first org_admin + trial). Returns
+// a session token so the client can go straight into the app.
+router.post('/signup', signupLimiter, validate(schema.signupSchema), controller.signup.bind(controller));
 
 // Public — staff login (rejects anything other than 'active' accounts)
 router.post('/login', loginLimiter, validate(schema.loginStaffSchema), controller.login.bind(controller));

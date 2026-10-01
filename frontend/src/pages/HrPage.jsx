@@ -1,650 +1,408 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { apiFetch, ApiError } from '../lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
+import { useAuth } from '../context/AuthContext';
+import { useFetch, errorMessage } from '../hooks/useFetch';
+import { apiFetch, ApiError } from '../lib/api';
+import { can } from '../lib/roles';
+import { PageHeader, Chips, ErrorNote, Loading, EmptyState, Sheet, Avatar, StatusPill } from '@/components/common';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { NativeSelect } from '@/components/ui/native-select';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { cn } from '@/lib/utils';
+import { relativeTime, shortDate, fullName } from '../lib/format';
 
-const TABS = [
-  { key: 'candidates', label: 'Candidates' },
-  { key: 'jobs', label: 'Job Postings' },
-  { key: 'tracker', label: 'Tracker' },
-];
+const COUNTRIES = [['IN', 'India +91'], ['US', 'United States +1'], ['GB', 'United Kingdom +44'], ['AE', 'UAE +971'], ['SG', 'Singapore +65'], ['CA', 'Canada +1'], ['AU', 'Australia +61']];
+const TABS = [{ key: 'pipeline', label: 'Pipeline' }, { key: 'candidates', label: 'Candidates' }, { key: 'jobs', label: 'Jobs' }];
+const CLOSED = ['rejected', 'withdrawn', 'placed'];
 
+/**
+ * HR workbench — phone-first. The job of this screen is "who do I need to
+ * move or call next": a stage filter, one card per candidate, and the
+ * single most likely next action (advance) as the biggest button.
+ */
 export function HrPage() {
-  const [tab, setTab] = useState('candidates');
-  // Teams are needed by all three tabs (filters + form dropdowns) — loaded
-  // once here rather than separately in each tab.
-  const [teams, setTeams] = useState([]);
-
-  useEffect(() => {
-    apiFetch('/api/v1/teams').then((res) => setTeams(res.data.teams)).catch(() => {});
-  }, []);
-
-  const teamName = useCallback((id) => teams.find((t) => t.id === id)?.name || '—', [teams]);
+  const auth = useAuth();
+  const [tab, setTab] = useState('pipeline');
 
   return (
     <AppLayout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">HR</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Candidates, job postings, and the pipeline tracker.</p>
-      </div>
-
-      <div className="mb-6 flex gap-1 border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
-              tab === t.key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'candidates' && <CandidatesTab teams={teams} teamName={teamName} />}
-      {tab === 'jobs' && <JobPostingsTab teams={teams} teamName={teamName} />}
-      {tab === 'tracker' && <TrackerTab teams={teams} teamName={teamName} />}
+      <PageHeader
+        title="Pipeline"
+        subtitle={`Hi ${auth.user.firstName} — here's what needs you today.`}
+        action={<Link to="/hr/classic" className="text-xs text-muted-foreground underline underline-offset-4">Classic view</Link>}
+      />
+      <Chips items={TABS} value={tab} onChange={setTab} className="mb-4" />
+      {tab === 'pipeline' && <PipelineTab />}
+      {tab === 'candidates' && <CandidatesTab />}
+      {tab === 'jobs' && <JobsTab />}
     </AppLayout>
   );
 }
 
-const SOURCES = ['job_post', 'manual', 'resume_upload', 'referral', 'agency', 'linkedin', 'other'];
+// ── Pipeline ─────────────────────────────────────────────────────────────
+function PipelineTab() {
+  const auth = useAuth();
+  const { user, roles } = auth;
+  const trackers = useFetch('/api/v1/trackers');
+  const positions = useFetch('/api/v1/open-positions');
+  const teams = useFetch('/api/v1/teams');
+  const workflows = useFetch('/api/v1/workflows');
+  const org = useFetch('/api/v1/organizations/me');
 
-// ── Candidates ────────────────────────────────────────────────────────────
-function CandidatesTab({ teams, teamName }) {
-  const { isOrgAdmin } = useAuth();
-  const [teamFilter, setTeamFilter] = useState('');
-  const [candidates, setCandidates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [stagesByTemplate, setStagesByTemplate] = useState({});
+  const [scope, setScope] = useState('mine');
+  const [filter, setFilter] = useState('all');
   const [busyId, setBusyId] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [rejecting, setRejecting] = useState(null);
+  const [reason, setReason] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
 
-  const EMPTY = { firstName: '', lastName: '', ownerTeamId: '', email: '', phone: '', source: 'manual', skills: '' };
-  const [form, setForm] = useState(EMPTY);
-
-  const load = useCallback(async (teamId) => {
-    const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
-    const res = await apiFetch(`/api/v1/candidates${qs}`);
-    setCandidates(res.data.candidates);
-  }, []);
-
+  // Stage lists per template, to know each card's "next stage".
   useEffect(() => {
-    setLoading(true);
-    load(teamFilter)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load candidates.'))
-      .finally(() => setLoading(false));
-  }, [load, teamFilter]);
+    const templates = workflows.data?.templates || [];
+    if (templates.length === 0) return;
+    let cancelled = false;
+    Promise.all(templates.map(async (t) => {
+      const res = await apiFetch(`/api/v1/workflows/${t.id}/stages`);
+      return [t.id, [...res.data.stages].sort((a, b) => a.orderIndex - b.orderIndex)];
+    })).then((entries) => { if (!cancelled) setStagesByTemplate(Object.fromEntries(entries)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [workflows.data]);
 
-  function update(field) {
-    return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  }
+  const myTeamIds = useMemo(() => {
+    if (auth.isOrgAdmin) return (teams.data?.teams || []).map((t) => t.id);
+    return [...new Set([...auth.hrTeamIds, ...auth.managedTeamIds])];
+  }, [auth.isOrgAdmin, auth.hrTeamIds, auth.managedTeamIds, teams.data]);
+  const myTeams = (teams.data?.teams || []).filter((t) => myTeamIds.includes(t.id));
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const skills = form.skills.split(',').map((s) => s.trim()).filter(Boolean);
-      await apiFetch('/api/v1/candidates', { method: 'POST', body: { ...form, skills, email: form.email || undefined, phone: form.phone || undefined } });
-      setForm(EMPTY);
-      setShowCreate(false);
-      await load(teamFilter);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not create candidate.');
-    } finally {
-      setSubmitting(false);
+  const all = (trackers.data?.trackers || []).filter((t) => myTeamIds.includes(t.teamId));
+  const scoped = scope === 'mine' ? all.filter((t) => t.assignedHr === user.id) : all;
+
+  const active = scoped.filter((t) => t.status === 'active');
+  const held = scoped.filter((t) => t.status === 'on_hold');
+  const closed = scoped.filter((t) => CLOSED.includes(t.status));
+
+  // One chip per stage that actually has people in it, in pipeline order.
+  const stageChips = useMemo(() => {
+    const seen = new Map();
+    for (const t of active) {
+      const st = t.currentStage;
+      if (st && !seen.has(st.stageKey)) {
+        const list = stagesByTemplate[t.workflowTemplateId] || [];
+        seen.set(st.stageKey, { key: st.stageKey, label: st.name, order: list.findIndex((s) => s.id === st.id) });
+      }
     }
+    return [...seen.values()].sort((a, b) => a.order - b.order).map((c) => ({ ...c, count: active.filter((t) => t.currentStage?.stageKey === c.key).length }));
+  }, [active, stagesByTemplate]);
+
+  const chips = [
+    { key: 'all', label: 'Active', count: active.length }, ...stageChips,
+    { key: 'hold', label: 'On hold', count: held.length }, { key: 'closed', label: 'Closed', count: closed.length },
+  ];
+
+  const visible = filter === 'all' ? active : filter === 'hold' ? held : filter === 'closed' ? closed : active.filter((t) => t.currentStage?.stageKey === filter);
+  const canAdvance = can(roles, 'workflow_actions', 'advance');
+  const canBlock = can(roles, 'workflow_actions', 'block');
+  const canHold = can(roles, 'workflow_actions', 'hold');
+  const canWrite = can(roles, 'trackers', 'write');
+
+  function nextStageOf(t) {
+    const list = stagesByTemplate[t.workflowTemplateId] || [];
+    const idx = list.findIndex((s) => s.id === t.currentStage?.id);
+    return idx >= 0 ? list[idx + 1] || null : null;
   }
 
-  async function handleDelete(c) {
-    if (!window.confirm(`Delete ${c.firstName} ${c.lastName}? This can't be undone.`)) return;
-    setBusyId(c.id);
-    setError(null);
+  async function act(t, verb, body) {
+    setBusyId(t.id);
+    setActionError(null);
     try {
-      await apiFetch(`/api/v1/candidates/${c.id}`, { method: 'DELETE' });
-      await load(teamFilter);
+      await apiFetch(`/api/v1/trackers/${t.id}/${verb}`, { method: 'POST', body });
+      await trackers.reload();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not delete candidate.');
+      setActionError(errorMessage(err, `Could not ${verb} this candidate.`));
     } finally {
       setBusyId(null);
     }
   }
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="w-56">
-          <NativeSelect value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
-            <option value="">All teams</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </NativeSelect>
-        </div>
-        <Button onClick={() => setShowCreate((s) => !s)}>{showCreate ? 'Cancel' : 'New Candidate'}</Button>
+    <>
+      {/* Mine / Team */}
+      <div className="mb-3 inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Scope">
+        {[['mine', 'My candidates'], ['team', 'Whole team']].map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={scope === k} onClick={() => { setScope(k); setFilter('all'); }}
+            className={`h-9 rounded-md px-3 text-sm font-medium ${scope === k ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>{label}</button>
+        ))}
       </div>
+      <Chips items={chips} value={filter} onChange={setFilter} className="mb-4" />
 
-      {error && <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      <ErrorNote onRetry={trackers.reload}>{trackers.error}</ErrorNote>
+      <ErrorNote>{actionError}</ErrorNote>
+      {trackers.loading && !trackers.data && <Loading />}
 
-      {showCreate && (
-        <Card className="mb-6">
-          <form onSubmit={handleCreate}>
-            <CardHeader><CardTitle>New candidate</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2"><Label>First name</Label><Input value={form.firstName} onChange={update('firstName')} required /></div>
-              <div className="grid gap-2"><Label>Last name</Label><Input value={form.lastName} onChange={update('lastName')} required /></div>
-              <div className="grid gap-2">
-                <Label>Owning team</Label>
-                <NativeSelect value={form.ownerTeamId} onChange={update('ownerTeamId')} required>
-                  <option value="" disabled>Select a team</option>
-                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Source</Label>
-                <NativeSelect value={form.source} onChange={update('source')}>
-                  {SOURCES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2"><Label>Email</Label><Input type="email" value={form.email} onChange={update('email')} /></div>
-              <div className="grid gap-2"><Label>Phone</Label><Input value={form.phone} onChange={update('phone')} /></div>
-              <div className="col-span-2 grid gap-2">
-                <Label>Skills</Label>
-                <Input value={form.skills} onChange={update('skills')} placeholder="node.js, postgres, react (comma-separated)" />
-              </div>
-            </CardContent>
-            <CardFooter><Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create candidate'}</Button></CardFooter>
-          </form>
-        </Card>
+      {trackers.data && visible.length === 0 && (
+        <EmptyState
+          title={filter === 'all' ? (scope === 'mine' ? 'Nothing assigned to you yet' : 'The pipeline is empty') : 'Nobody here'}
+          body={scope === 'mine' && canWrite ? 'Tap + to add a candidate, or switch to Whole team.' : undefined}
+        />
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Directory</CardTitle>
-          <CardDescription>{candidates.length} candidate(s){teamFilter ? ' in this team' : ''}.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  {isOrgAdmin && <TableHead className="text-right">Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {candidates.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.firstName} {c.lastName}</TableCell>
-                    <TableCell className="text-muted-foreground">{c.email || c.phone || '—'}</TableCell>
-                    <TableCell>{teamName(c.ownerTeamId)}</TableCell>
-                    <TableCell className="capitalize">{c.source.replace('_', ' ')}</TableCell>
-                    <TableCell><Badge variant={c.status === 'active' ? 'success' : c.status === 'placed' ? 'default' : 'outline'}>{c.status}</Badge></TableCell>
-                    {isOrgAdmin && (
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline" disabled={busyId === c.id} onClick={() => handleDelete(c)}>Delete</Button>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {visible.map((t) => {
+          const next = nextStageOf(t);
+          const busy = busyId === t.id;
+          return (
+            <Card key={t.id} className="gap-3 p-4">
+              <div className="flex items-start gap-3">
+                <Avatar name={t.candidateName} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold">{t.candidateName}</div>
+                  <div className="truncate text-xs text-muted-foreground">{t.openPositionDesignation || 'No position'}{t.clientName ? ` · ${t.clientName}` : ''}</div>
+                </div>
+                {t.candidatePhone && (
+                  <a href={`tel:${t.candidatePhone}`} aria-label={`Call ${t.candidateName}`} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground active:scale-95"><Phone className="size-5" /></a>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {t.status === 'active' && t.currentStage && <StatusPill status="trialing">{t.currentStage.name}</StatusPill>}
+                {t.status !== 'active' && <StatusPill status={t.status} />}
+                {t.currentStageEnteredAt && t.status === 'active' && <span>{relativeTime(t.currentStageEnteredAt).replace(' ago', '')} in stage</span>}
+                {t.interviewDate && t.status === 'active' && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />{shortDate(t.interviewDate)}</span>}
+              </div>
+
+              {t.status === 'active' && (
+                <div className="flex gap-2">
+                  {canAdvance && (
+                    <Button className="flex-1" disabled={busy || !next} onClick={() => act(t, 'advance', { nextStageId: next.id })}>
+                      {next ? <>Move to {next.name} <ArrowRight /></> : 'Final stage'}
+                    </Button>
+                  )}
+                  {canHold && <Button variant="outline" size="icon" aria-label="Put on hold" disabled={busy} onClick={() => act(t, 'hold')}><Pause /></Button>}
+                  {canBlock && <Button variant="outline" size="icon" aria-label="Reject" disabled={busy} onClick={() => { setRejecting(t); setReason(''); }}><X /></Button>}
+                </div>
+              )}
+              {t.status === 'on_hold' && canHold && (
+                <Button variant="outline" disabled={busy} onClick={() => act(t, 'resume')}><Play /> Resume</Button>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      {canWrite && myTeams.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="pb-safe fixed bottom-20 right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-primary px-5 font-medium text-primary-foreground shadow-lg active:scale-95 md:bottom-8 md:right-8"
+        >
+          <Plus className="size-5" /> Add candidate
+        </button>
+      )}
+
+      <Sheet open={!!rejecting} onClose={() => setRejecting(null)} title={`Reject ${rejecting?.candidateName || ''}?`}>
+        <form className="flex flex-col gap-4" onSubmit={async (e) => { e.preventDefault(); await act(rejecting, 'block', { reason: reason.trim() }); setRejecting(null); }}>
+          <div className="grid gap-2">
+            <Label htmlFor="rej-reason">Reason</Label>
+            <Input id="rej-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Salary expectation too high" required autoFocus />
+          </div>
+          <Button type="submit" variant="destructive">Reject candidate</Button>
+        </form>
+      </Sheet>
+
+      <QuickAdd
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        teams={myTeams}
+        positions={(positions.data?.positions || []).filter((p) => p.status === 'open')}
+        defaultCountry={org.data?.organization?.defaultCountry || 'IN'}
+        meId={user.id}
+        onAdded={() => { setAddOpen(false); setScope('mine'); setFilter('all'); trackers.reload(); }}
+      />
+    </>
   );
 }
 
-// ── Job Postings ──────────────────────────────────────────────────────────
-function JobPostingsTab({ teams, teamName }) {
-  const { isOrgAdmin, isManager } = useAuth();
-  const canClose = isOrgAdmin || isManager; // hr lacks job_postings:close
-  const [jobs, setJobs] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [busyId, setBusyId] = useState(null);
-
-  const EMPTY = { title: '', description: '', teamId: '', workflowTemplateId: '', location: '', workMode: 'remote', employmentType: 'full_time', vacancies: 1 };
+function QuickAdd({ open, onClose, teams, positions, defaultCountry, meId, onAdded }) {
+  const EMPTY = { firstName: '', lastName: '', phone: '', phoneCountry: defaultCountry, teamId: '', openPositionId: '' };
   const [form, setForm] = useState(EMPTY);
-
-  const load = useCallback(async () => {
-    const [jobsRes, templatesRes] = await Promise.all([
-      apiFetch('/api/v1/job-postings'),
-      apiFetch('/api/v1/workflows'),
-    ]);
-    setJobs(jobsRes.data.jobs);
-    setTemplates(templatesRes.data.templates);
-  }, []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [duplicate, setDuplicate] = useState(null);
 
   useEffect(() => {
-    setLoading(true);
-    load()
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load job postings.'))
-      .finally(() => setLoading(false));
-  }, [load]);
+    if (open) { setForm({ ...EMPTY, teamId: teams[0]?.id || '' }); setError(null); setDuplicate(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  function update(field) {
-    return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  }
+  const update = (f) => (e) => setForm((s) => ({ ...s, [f]: e.target.value }));
+  const teamPositions = positions.filter((p) => p.teamId === form.teamId);
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    setSubmitting(true);
+  async function submit(confirmDuplicate = false) {
+    setBusy(true);
     setError(null);
     try {
-      await apiFetch('/api/v1/job-postings', {
+      await apiFetch('/api/v1/trackers', {
         method: 'POST',
-        body: { ...form, workflowTemplateId: form.workflowTemplateId || undefined, vacancies: Number(form.vacancies) },
+        body: {
+          teamId: form.teamId,
+          assignedHr: meId,
+          openPositionId: form.openPositionId || undefined,
+          candidate: {
+            firstName: form.firstName.trim(),
+            lastName: form.lastName.trim() || undefined,
+            phone: form.phone.trim(),
+            phoneCountry: form.phoneCountry,
+            ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
+          },
+        },
       });
-      setForm(EMPTY);
-      setShowCreate(false);
-      await load();
+      onAdded();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not create job posting.');
+      const dup = err instanceof ApiError && err.status === 409 ? err.body?.data?.possibleDuplicate : null;
+      if (dup) setDuplicate(dup);
+      else setError(errorMessage(err, 'Could not add this candidate.'));
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
-  async function handleAction(job, action) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Add candidate">
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); setDuplicate(null); submit(false); }}>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-2"><Label htmlFor="qa-first">First name</Label><Input id="qa-first" value={form.firstName} onChange={update('firstName')} required autoComplete="off" /></div>
+          <div className="grid gap-2"><Label htmlFor="qa-last">Last name</Label><Input id="qa-last" value={form.lastName} onChange={update('lastName')} autoComplete="off" /></div>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+          <div className="grid gap-2"><Label htmlFor="qa-cc">Country</Label>
+            <NativeSelect id="qa-cc" value={form.phoneCountry} onChange={update('phoneCountry')}>{COUNTRIES.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</NativeSelect></div>
+          <div className="grid gap-2"><Label htmlFor="qa-phone">Phone</Label><Input id="qa-phone" type="tel" inputMode="tel" value={form.phone} onChange={update('phone')} required autoComplete="off" /></div>
+        </div>
+        {teams.length > 1 && (
+          <div className="grid gap-2"><Label htmlFor="qa-team">Team</Label>
+            <NativeSelect id="qa-team" value={form.teamId} onChange={(e) => setForm((s) => ({ ...s, teamId: e.target.value, openPositionId: '' }))}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</NativeSelect></div>
+        )}
+        <div className="grid gap-2"><Label htmlFor="qa-pos">For position (optional)</Label>
+          <NativeSelect id="qa-pos" value={form.openPositionId} onChange={update('openPositionId')}>
+            <option value="">No position yet</option>
+            {teamPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
+          </NativeSelect></div>
+
+        {duplicate && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/30" role="alert">
+            <p className="font-medium">This number may already be in your database</p>
+            <p className="mt-1 text-muted-foreground">{fullName(duplicate) || 'A candidate'}{duplicate.phone ? ` · ${duplicate.phone}` : ''}</p>
+            <div className="mt-3 flex gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setDuplicate(null)}>Cancel</Button>
+              <Button type="button" className="flex-1" disabled={busy} onClick={() => submit(true)}>Add anyway</Button>
+            </div>
+          </div>
+        )}
+        <ErrorNote>{error}</ErrorNote>
+        {!duplicate && <Button type="submit" size="lg" disabled={busy || !form.teamId}>{busy ? 'Adding…' : 'Add to my pipeline'}</Button>}
+      </form>
+    </Sheet>
+  );
+}
+
+// ── Candidates ───────────────────────────────────────────────────────────
+function CandidatesTab() {
+  const { data, loading, error, reload } = useFetch('/api/v1/candidates');
+  const [q, setQ] = useState('');
+
+  const list = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const all = data?.candidates || [];
+    if (!needle) return all;
+    return all.filter((c) => [fullName(c), c.email, c.phone, c.location, ...(c.skills || [])].filter(Boolean).join(' ').toLowerCase().includes(needle));
+  }, [data, q]);
+
+  return (
+    <>
+      <div className="relative mb-4">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <Input type="search" placeholder="Search name, phone, skill…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" aria-label="Search candidates" />
+      </div>
+      <ErrorNote onRetry={reload}>{error}</ErrorNote>
+      {loading && !data && <Loading />}
+      {data && list.length === 0 && <EmptyState title="No candidates found" />}
+      <div className="grid gap-3 md:grid-cols-2">
+        {list.map((c) => (
+          <Card key={c.id} className="gap-2 p-4">
+            <div className="flex items-start gap-3">
+              <Avatar name={fullName(c)} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold">{fullName(c)}</div>
+                <div className="truncate text-xs text-muted-foreground">{c.location || 'Location not set'} · {String(c.source).replace(/_/g, ' ')}</div>
+              </div>
+              {c.phone && <a href={`tel:${c.phone}`} aria-label={`Call ${fullName(c)}`} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground"><Phone className="size-5" /></a>}
+              {c.email && <a href={`mailto:${c.email}`} aria-label={`Email ${fullName(c)}`} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted"><Mail className="size-5" /></a>}
+            </div>
+            {(c.skills || []).length > 0 && (
+              <div className="flex flex-wrap gap-1">{c.skills.slice(0, 5).map((s) => <span key={s} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{s}</span>)}</div>
+            )}
+          </Card>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ── Jobs ─────────────────────────────────────────────────────────────────
+function JobsTab() {
+  const { roles } = useAuth();
+  const { data, loading, error, reload } = useFetch('/api/v1/job-postings');
+  const [busyId, setBusyId] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const canPublish = can(roles, 'job_postings', 'publish');
+  const canClose = can(roles, 'job_postings', 'close');
+
+  async function act(job, action) {
     setBusyId(job.id);
-    setError(null);
+    setActionError(null);
     try {
       await apiFetch(`/api/v1/job-postings/${job.id}/${action}`, { method: 'POST' });
-      await load();
+      await reload();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : `Could not ${action} this posting.`);
+      setActionError(errorMessage(err, `Could not ${action} this job.`));
     } finally {
       setBusyId(null);
     }
   }
 
-  async function handleDelete(job) {
-    if (!window.confirm(`Delete "${job.title}"? This can't be undone.`)) return;
-    setBusyId(job.id);
-    setError(null);
-    try {
-      await apiFetch(`/api/v1/job-postings/${job.id}`, { method: 'DELETE' });
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not delete this posting.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
+  const jobs = data?.jobs || [];
   return (
-    <div>
-      <div className="mb-4 flex justify-end">
-        <Button onClick={() => setShowCreate((s) => !s)}>{showCreate ? 'Cancel' : 'New Job Posting'}</Button>
+    <>
+      <ErrorNote onRetry={reload}>{error}</ErrorNote>
+      <ErrorNote>{actionError}</ErrorNote>
+      {loading && !data && <Loading />}
+      {data && jobs.length === 0 && <EmptyState title="No job postings yet" body="Create one from the classic view." action={<Button asChild variant="outline"><Link to="/hr/classic">Open classic view</Link></Button>} />}
+      <div className="grid gap-3 md:grid-cols-2">
+        {jobs.map((j) => (
+          <Card key={j.id} className="gap-3 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{j.title}</div>
+                <div className="truncate text-xs text-muted-foreground">{[j.location, String(j.workMode).replace('_', ' '), String(j.employmentType).replace('_', ' ')].filter(Boolean).join(' · ')}</div>
+              </div>
+              <StatusPill status={j.status} />
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{j.vacancies} vacanc{j.vacancies === 1 ? 'y' : 'ies'}</span>
+              <span>{j.publishedAt ? `Published ${relativeTime(j.publishedAt)}` : 'Not published'}</span>
+            </div>
+            <div className="flex gap-2">
+              {canPublish && ['draft', 'paused'].includes(j.status) && <Button className="flex-1" disabled={busyId === j.id} onClick={() => act(j, 'publish')}>Publish</Button>}
+              {canClose && j.status === 'published' && <Button className="flex-1" variant="outline" disabled={busyId === j.id} onClick={() => act(j, 'close')}>Close</Button>}
+            </div>
+          </Card>
+        ))}
       </div>
-
-      {error && <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-
-      {templates.length === 0 && (
-        <p className="mb-4 rounded-md border border-secondary bg-secondary/50 px-3 py-2 text-sm text-muted-foreground">
-          No workflow templates exist yet — a job posting can still be created without one, but applications need a
-          template to track pipeline stages. Ask an org admin to create one.
-        </p>
-      )}
-
-      {showCreate && (
-        <Card className="mb-6">
-          <form onSubmit={handleCreate}>
-            <CardHeader><CardTitle>New job posting</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div className="col-span-2 grid gap-2"><Label>Title</Label><Input value={form.title} onChange={update('title')} required /></div>
-              <div className="col-span-2 grid gap-2"><Label>Description</Label><Input value={form.description} onChange={update('description')} required /></div>
-              <div className="grid gap-2">
-                <Label>Team</Label>
-                <NativeSelect value={form.teamId} onChange={update('teamId')} required>
-                  <option value="" disabled>Select a team</option>
-                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Workflow template</Label>
-                <NativeSelect value={form.workflowTemplateId} onChange={update('workflowTemplateId')}>
-                  <option value="">None</option>
-                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Work mode</Label>
-                <NativeSelect value={form.workMode} onChange={update('workMode')}>
-                  <option value="remote">Remote</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="onsite">Onsite</option>
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Employment type</Label>
-                <NativeSelect value={form.employmentType} onChange={update('employmentType')}>
-                  <option value="full_time">Full-time</option>
-                  <option value="part_time">Part-time</option>
-                  <option value="contract">Contract</option>
-                  <option value="temporary">Temporary</option>
-                  <option value="internship">Internship</option>
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2"><Label>Location</Label><Input value={form.location} onChange={update('location')} /></div>
-              <div className="grid gap-2"><Label>Vacancies</Label><Input type="number" min={1} value={form.vacancies} onChange={update('vacancies')} /></div>
-            </CardContent>
-            <CardFooter><Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create posting'}</Button></CardFooter>
-          </form>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Postings</CardTitle>
-          <CardDescription>{jobs.length} posting(s).</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Vacancies</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {jobs.map((j) => (
-                  <TableRow key={j.id}>
-                    <TableCell className="font-medium">{j.title}</TableCell>
-                    <TableCell>{teamName(j.teamId)}</TableCell>
-                    <TableCell>{j.vacancies}</TableCell>
-                    <TableCell><Badge variant={j.status === 'published' ? 'success' : j.status === 'closed' ? 'destructive' : 'secondary'}>{j.status}</Badge></TableCell>
-                    <TableCell className="flex justify-end gap-2">
-                      {j.status === 'draft' && (
-                        <Button size="sm" disabled={busyId === j.id} onClick={() => handleAction(j, 'publish')}>Publish</Button>
-                      )}
-                      {j.status === 'published' && canClose && (
-                        <Button size="sm" variant="outline" disabled={busyId === j.id} onClick={() => handleAction(j, 'close')}>Close</Button>
-                      )}
-                      {isOrgAdmin && (
-                        <Button size="sm" variant="outline" disabled={busyId === j.id} onClick={() => handleDelete(j)}>Delete</Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ── Tracker (applications pipeline) ──────────────────────────────────────
-function TrackerTab({ teams, teamName }) {
-  const [applications, setApplications] = useState([]);
-  const [candidates, setCandidates] = useState([]);
-  const [jobs, setJobs] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [stagesByTemplate, setStagesByTemplate] = useState({});
-  const [teamFilter, setTeamFilter] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [busyId, setBusyId] = useState(null);
-  const [advanceTarget, setAdvanceTarget] = useState({});
-
-  const EMPTY = { candidateId: '', jobPostingId: '', teamId: '', workflowTemplateId: '' };
-  const [form, setForm] = useState(EMPTY);
-
-  const load = useCallback(async (teamId) => {
-    const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
-    const [appsRes, candidatesRes, jobsRes, templatesRes] = await Promise.all([
-      apiFetch(`/api/v1/applications${qs}`),
-      apiFetch('/api/v1/candidates'),
-      apiFetch('/api/v1/job-postings'),
-      apiFetch('/api/v1/workflows'),
-    ]);
-    setApplications(appsRes.data.applications);
-    setCandidates(candidatesRes.data.candidates);
-    setJobs(jobsRes.data.jobs);
-    setTemplates(templatesRes.data.templates);
-
-    const stagesEntries = await Promise.all(
-      templatesRes.data.templates.map(async (t) => {
-        const res = await apiFetch(`/api/v1/workflows/${t.id}/stages`);
-        return [t.id, res.data.stages.sort((a, b) => a.orderIndex - b.orderIndex)];
-      })
-    );
-    setStagesByTemplate(Object.fromEntries(stagesEntries));
-  }, []);
-
-  useEffect(() => {
-    setLoading(true);
-    load(teamFilter)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load the tracker.'))
-      .finally(() => setLoading(false));
-  }, [load, teamFilter]);
-
-  const candidateName = useCallback((id) => {
-    const c = candidates.find((c) => c.id === id);
-    return c ? `${c.firstName} ${c.lastName}` : '—';
-  }, [candidates]);
-  const jobTitle = useCallback((id) => jobs.find((j) => j.id === id)?.title || '—', [jobs]);
-
-  function update(field) {
-    return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  }
-
-  async function handleCreate(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await apiFetch('/api/v1/applications', {
-        method: 'POST',
-        body: { ...form, jobPostingId: form.jobPostingId || undefined },
-      });
-      setForm(EMPTY);
-      setShowCreate(false);
-      await load(teamFilter);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not create application.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleAdvance(app) {
-    const nextStageId = advanceTarget[app.id];
-    if (!nextStageId) return;
-    setBusyId(app.id);
-    setError(null);
-    try {
-      await apiFetch(`/api/v1/applications/${app.id}/advance`, { method: 'POST', body: { nextStageId } });
-      await load(teamFilter);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not advance this application.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function handleHold(app) {
-    setBusyId(app.id);
-    setError(null);
-    try {
-      await apiFetch(`/api/v1/applications/${app.id}/hold`, { method: 'POST' });
-      await load(teamFilter);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not put this application on hold.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function handleBlock(app) {
-    const reason = window.prompt('Reason for blocking this application:');
-    if (!reason) return;
-    setBusyId(app.id);
-    setError(null);
-    try {
-      await apiFetch(`/api/v1/applications/${app.id}/block`, { method: 'POST', body: { reason } });
-      await load(teamFilter);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not block this application.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  const activeCandidates = useMemo(() => candidates.filter((c) => c.status === 'active'), [candidates]);
-
-  return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="w-56">
-          <NativeSelect value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
-            <option value="">All teams</option>
-            {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </NativeSelect>
-        </div>
-        <Button onClick={() => setShowCreate((s) => !s)} disabled={templates.length === 0}>
-          {showCreate ? 'Cancel' : 'New Application'}
-        </Button>
-      </div>
-
-      {error && <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-
-      {showCreate && (
-        <Card className="mb-6">
-          <form onSubmit={handleCreate}>
-            <CardHeader>
-              <CardTitle>New application</CardTitle>
-              <CardDescription>Enters the pipeline at the first stage of the chosen template.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Candidate</Label>
-                <NativeSelect value={form.candidateId} onChange={update('candidateId')} required>
-                  <option value="" disabled>Select a candidate</option>
-                  {activeCandidates.map((c) => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Job posting (optional)</Label>
-                <NativeSelect value={form.jobPostingId} onChange={update('jobPostingId')}>
-                  <option value="">None</option>
-                  {jobs.map((j) => <option key={j.id} value={j.id}>{j.title}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Team</Label>
-                <NativeSelect value={form.teamId} onChange={update('teamId')} required>
-                  <option value="" disabled>Select a team</option>
-                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2">
-                <Label>Workflow template</Label>
-                <NativeSelect value={form.workflowTemplateId} onChange={update('workflowTemplateId')} required>
-                  <option value="" disabled>Select a template</option>
-                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </NativeSelect>
-              </div>
-            </CardContent>
-            <CardFooter><Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Add to pipeline'}</Button></CardFooter>
-          </form>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Pipeline</CardTitle>
-          <CardDescription>{applications.length} application(s){teamFilter ? ' for this team' : ''}.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Candidate</TableHead>
-                  <TableHead>Job Posting</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Current Stage</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {applications.map((app) => {
-                  const stages = stagesByTemplate[app.workflowTemplateId] || [];
-                  const otherStages = stages.filter((s) => s.id !== app.currentStage?.id);
-                  return (
-                    <TableRow key={app.id}>
-                      <TableCell className="font-medium">{app.candidateName || candidateName(app.candidateId)}</TableCell>
-                      <TableCell className="text-muted-foreground">{app.jobPostingTitle || (app.jobPostingId ? jobTitle(app.jobPostingId) : '—')}</TableCell>
-                      <TableCell>{teamName(app.teamId)}</TableCell>
-                      <TableCell>
-                        {app.currentStage ? (
-                          <Badge variant={app.currentStage.isFinalSuccess ? 'success' : 'secondary'}>{app.currentStage.name}</Badge>
-                        ) : '—'}
-                      </TableCell>
-                      <TableCell><Badge variant={app.status === 'active' ? 'success' : app.status === 'blocked' ? 'destructive' : 'outline'}>{app.status}</Badge></TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-2">
-                          {otherStages.length > 0 && (
-                            <>
-                              <NativeSelect
-                                className="h-8 w-36"
-                                value={advanceTarget[app.id] || ''}
-                                onChange={(e) => setAdvanceTarget((s) => ({ ...s, [app.id]: e.target.value }))}
-                              >
-                                <option value="" disabled>Move to…</option>
-                                {otherStages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                              </NativeSelect>
-                              <Button size="sm" disabled={!advanceTarget[app.id] || busyId === app.id} onClick={() => handleAdvance(app)}>
-                                Go
-                              </Button>
-                            </>
-                          )}
-                          <Button size="sm" variant="outline" disabled={busyId === app.id} onClick={() => handleHold(app)}>Hold</Button>
-                          <Button size="sm" variant="outline" disabled={busyId === app.id} onClick={() => handleBlock(app)}>Block</Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    </>
   );
 }

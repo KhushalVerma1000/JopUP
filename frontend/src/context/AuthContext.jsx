@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { apiFetch, getToken, setToken, ApiError } from '../lib/api';
+import { summariseRoles, homePathFor } from '../lib/roles';
 
 const AuthContext = createContext(null);
 
@@ -13,16 +14,6 @@ const AuthContext = createContext(null);
  * itself checks in middlewares/requireAuth.js's requireOrgRole: roleName
  * matches AND teamId is null/undefined.
  */
-function hasOrgRole(roles, roleName) {
-  return (roles || []).some(
-    (r) => r.roleName === roleName && (r.teamId === null || r.teamId === undefined)
-  );
-}
-
-function hasAnyRole(roles, roleName) {
-  return (roles || []).some((r) => r.roleName === roleName);
-}
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [roles, setRoles] = useState([]);
@@ -85,20 +76,31 @@ export function AuthProvider({ children }) {
     return apiFetch('/api/v1/auth/register', { method: 'POST', body: fields });
   }, []);
 
+  // Self-serve workspace signup. Creates org + first org_admin + trial and
+  // returns a session, so the new admin lands inside the app immediately.
+  const signup = useCallback(async (fields) => {
+    const res = await apiFetch('/api/v1/auth/signup', { method: 'POST', body: fields });
+    setToken(res.data.token);
+    setUser(res.data.user);
+    setRoles(res.data.roles);
+    return res.data;
+  }, []);
+
   const logout = useCallback(() => {
     clearSession();
   }, [clearSession]);
 
+  const summary = summariseRoles(roles);
   const value = {
     user,
     roles,
     initializing,
     isAuthenticated: !!user,
-    isOrgAdmin: hasOrgRole(roles, 'org_admin'),
-    isManager: hasAnyRole(roles, 'manager'),
-    isHr: hasAnyRole(roles, 'hr'),
+    ...summary,
+    homePath: homePathFor(summary),
     login,
     register,
+    signup,
     logout,
   };
 

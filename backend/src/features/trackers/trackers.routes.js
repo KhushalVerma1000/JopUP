@@ -23,6 +23,7 @@ router.post('/', requirePermission('trackers', 'write'), validate(schema.createT
 router.post('/:id/advance', requirePermission('workflow_actions', 'advance'), validate(schema.advanceStageSchema), controller.advanceStage.bind(controller));
 router.post('/:id/block', requirePermission('workflow_actions', 'block'), validate(schema.blockTrackerSchema), controller.block.bind(controller));
 router.post('/:id/hold', requirePermission('workflow_actions', 'hold'), validate(schema.trackerParamsSchema), controller.hold.bind(controller));
+router.post('/:id/resume', requirePermission('workflow_actions', 'hold'), validate(schema.trackerParamsSchema), controller.resume.bind(controller));
 // Logging a granular action (a note/call/email) isn't a stage transition,
 // so it's gated as a tracker write, not a workflow_actions key.
 router.post('/:id/stages/:logId/actions', requirePermission('trackers', 'write'), validate(schema.addActionSchema), controller.addAction.bind(controller));

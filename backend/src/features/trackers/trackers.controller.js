@@ -55,6 +55,11 @@ class TrackersController {
     res.json({ status: 'success', data: { tracker } });
   }
 
+  async resume(req, res) {
+    const tracker = await trackersService.resumeTracker(req.tenantId, req.params.id, req.user?.userId);
+    res.json({ status: 'success', data: { tracker } });
+  }
+
   async getHistory(req, res) {
     const { id } = req.params;
     const history = await trackersService.getStageHistory(id);

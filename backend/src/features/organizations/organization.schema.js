@@ -30,7 +30,7 @@ const createOrganizationSchema = z.object({
 const updateOrganizationSchema = z.object({
   body: createOrganizationSchema.shape.body.partial().extend({
     logoUrl: z.string().optional(),
-    status: z.enum(['active', 'suspended', 'trial', 'cancelled']).optional()
+    status: z.enum(['trialing', 'active', 'suspended', 'cancelled']).optional()
   }),
   params: z.object({
     id: z.string().uuid('Invalid organization ID')

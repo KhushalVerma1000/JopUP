@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useOrgLookup } from '../hooks/useOrgLookup';
+import { AuthShell } from '../components/AuthShell';
 import { WorkspaceStep } from '../components/WorkspaceStep';
 import { ApiError } from '../lib/api';
 import { Button } from '@/components/ui/button';
@@ -16,19 +17,19 @@ export function RegisterPage() {
 
   if (!orgSlug) {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-muted p-6">
+      <AuthShell>
         <WorkspaceStep
           title="Request access"
           onSubmit={(slug) => navigate(`/register/${encodeURIComponent(slug)}`, { replace: true })}
         />
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted p-6">
+    <AuthShell>
       <RegisterForm orgSlug={orgSlug} />
-    </div>
+    </AuthShell>
   );
 }
 
@@ -81,7 +82,7 @@ function RegisterForm({ orgSlug }) {
 
   if (loading) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full">
         <CardContent className="pt-6 text-sm text-muted-foreground">
           Looking up workspace…
         </CardContent>
@@ -91,7 +92,7 @@ function RegisterForm({ orgSlug }) {
 
   if (lookupError) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="text-xl">Request access</CardTitle>
         </CardHeader>
@@ -107,7 +108,7 @@ function RegisterForm({ orgSlug }) {
 
   if (submitted) {
     return (
-      <Card className="w-full max-w-sm">
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="text-xl">Request sent</CardTitle>
         </CardHeader>
@@ -126,7 +127,7 @@ function RegisterForm({ orgSlug }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full">
       <form onSubmit={handleSubmit}>
         <CardHeader>
           <CardTitle className="text-xl">Request access</CardTitle>
