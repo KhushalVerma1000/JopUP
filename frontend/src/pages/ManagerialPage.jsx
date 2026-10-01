@@ -325,10 +325,13 @@ function InvitationsTab() {
     setSubmitting(true);
     setError(null);
     try {
-      await apiFetch('/api/v1/invitations', {
+      const res = await apiFetch('/api/v1/invitations', {
         method: 'POST',
         body: { email, roleName, teamId: roleName === 'org_admin' ? undefined : teamId },
       });
+      if (res?.data?.emailSent === false) {
+        setError('Invitation created, but the email could not be delivered. Revoke it and try again once email is configured.');
+      }
       setEmail('');
       setTeamId('');
       setShowCreate(false);
@@ -387,8 +390,7 @@ function InvitationsTab() {
             <CardHeader>
               <CardTitle>New invitation</CardTitle>
               <CardDescription>
-                No email provider is wired up yet — after sending, copy the token from the table below and share it
-                with the invitee directly.
+                The invitee receives an email with a link to accept. If delivery fails you'll see a warning here.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-3 gap-4">
@@ -457,9 +459,11 @@ function InvitationsTab() {
                   <TableCell className="flex justify-end gap-2">
                     {inv.status === 'pending' && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => copyToken(inv.token)}>
-                          Copy token
-                        </Button>
+                        {inv.token && (
+                          <Button size="sm" variant="outline" onClick={() => copyToken(inv.token)}>
+                            Copy token
+                          </Button>
+                        )}
                         <Button size="sm" variant="outline" disabled={busyId === inv.id} onClick={() => handleRevoke(inv.id)}>
                           Revoke
                         </Button>

@@ -6,20 +6,39 @@ const jwt = require('jsonwebtoken');
 const { BadRequestError, NotFoundError, ConflictError } = require('../../utils/errors');
 const { auditWrite } = require('../../utils/audit');
 const authService = require('../auth/auth.service'); // reuse getActiveRoles for the auto-login-on-accept JWT
+const { sendEmail } = require('../../services/email');
+const { invitationEmail } = require('../../services/email/templates/invitation');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const INVITATION_TTL_DAYS = 7;
+
+// Whether the raw token is included in API responses. Defaults to true outside
+// production (the UI's "Copy token" fallback), false in production where the
+// token should only travel inside the invitation email. Override with
+// EXPOSE_INVITATION_TOKEN=true|false.
+function exposeToken() {
+  const v = process.env.EXPOSE_INVITATION_TOKEN;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return process.env.NODE_ENV !== 'production';
+}
+
+function present(invite) {
+  if (exposeToken()) return invite;
+  const { token, ...rest } = invite;
+  return rest;
+}
 
 class InvitationsService {
   /**
    * org_admin sends an invitation. This is the only path to the org_admin
    * role — self-registration (auth.service.js) is capped to hr/manager.
    *
-   * NOTE: there's no email delivery integration in this codebase yet, so the
-   * raw token is returned in the response for now — whoever calls this route
-   * is responsible for getting it to the invitee out-of-band until that
-   * exists. Flagging honestly rather than pretending an email went out.
+   * After the row is created an invitation email is sent via the email
+   * service. Delivery failure does NOT roll back the invitation: it is
+   * reported as emailSent:false so the caller can tell the admin honestly
+   * (outside production the token is also returned as a fallback).
    */
   async create(organisationId, invitedByUserId, { email, roleName, teamId }) {
     // Validate the roleName/teamId relationship before touching the DB at
@@ -75,7 +94,38 @@ class InvitationsService {
 
     await auditWrite(organisationId, invitedByUserId, 'create', 'invitation', created.id, null, { email, roleName, teamId: teamId || null }, 'invitations');
 
-    return created;
+    const emailSent = await this.sendInvitationEmail({ created, organisationId, invitedByUserId, roleName, teamId });
+
+    return { invitation: present(created), emailSent };
+  }
+
+  /** Best-effort send; never throws. Returns true if the provider accepted it. */
+  async sendInvitationEmail({ created, organisationId, invitedByUserId, roleName, teamId }) {
+    try {
+      const [org] = await db.select({ name: schema.organisation.name }).from(schema.organisation).where(eq(schema.organisation.id, organisationId));
+      const [inviter] = await db
+        .select({ firstName: schema.user.firstName, lastName: schema.user.lastName })
+        .from(schema.user)
+        .where(eq(schema.user.id, invitedByUserId));
+      const team = teamId
+        ? (await db.select({ name: schema.team.name }).from(schema.team).where(eq(schema.team.id, teamId)))[0]
+        : null;
+
+      const { subject, html } = invitationEmail({
+        orgName: org?.name || 'your organisation',
+        inviterName: inviter ? `${inviter.firstName} ${inviter.lastName}`.trim() : null,
+        roleName,
+        teamName: team?.name || null,
+        token: created.token,
+        expiresAt: created.expiresAt,
+      });
+
+      await sendEmail({ to: created.email, subject, html });
+      return true;
+    } catch (err) {
+      console.error(`[invitations] email to ${created.email} failed: ${err.message}`);
+      return false;
+    }
   }
 
   async list(organisationId, status) {
@@ -86,10 +136,7 @@ class InvitationsService {
     // Same gap as auth.service.js's listPendingApprovals: roleId/teamId are
     // raw UUIDs with no name resolution. Resolved here so the UI can show
     // "Manager — Recruitment Team A" instead of two UUIDs. `token` is left
-    // as-is (not stripped) — with no email provider wired up, an org_admin
-    // needs to see and copy it to hand to the invitee directly; only
-    // org_admin can reach this endpoint at all (requirePermission('users',
-    // 'invite')), so this isn't exposed any wider than the token already is.
+    // handled by present(): only included when exposeToken() is true.
     const roleIds = [...new Set(rows.map((r) => r.roleId).filter(Boolean))];
     const teamIds = [...new Set(rows.map((r) => r.teamId).filter(Boolean))];
 
@@ -104,7 +151,7 @@ class InvitationsService {
     const teamNameById = new Map(teamRows.map((t) => [t.id, t.name]));
 
     return rows.map((r) => ({
-      ...r,
+      ...present(r),
       roleName: roleNameById.get(r.roleId) || null,
       teamName: teamNameById.get(r.teamId) || null,
     }));
@@ -127,7 +174,7 @@ class InvitationsService {
 
     await auditWrite(organisationId, revokedByUserId, 'update', 'invitation', invitationId, { status: 'pending' }, { status: 'revoked' }, 'invitations');
 
-    return updated;
+    return present(updated);
   }
 
   /**

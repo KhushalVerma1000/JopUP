@@ -2,11 +2,13 @@ const service = require('./invitations.service');
 
 class InvitationsController {
   async create(req, res) {
-    const invitation = await service.create(req.tenantId, req.user.userId, req.body);
+    const { invitation, emailSent } = await service.create(req.tenantId, req.user.userId, req.body);
     res.status(201).json({
       status: 'success',
-      message: 'Invitation created. No email integration exists yet — share the token with the invitee directly.',
-      data: { invitation },
+      message: emailSent
+        ? `Invitation sent to ${invitation.email}.`
+        : 'Invitation created, but the email could not be delivered. Check the email configuration, then revoke and re-invite.',
+      data: { invitation, emailSent },
     });
   }
 
