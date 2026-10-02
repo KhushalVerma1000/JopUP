@@ -86,6 +86,18 @@ export function AuthProvider({ children }) {
     return res.data;
   }, []);
 
+  // Redeem an emailed invitation (POST /invitations/accept). The invitation
+  // already carries the org, role and team, so the invitee supplies only a
+  // token + their details. The backend creates the user as active and returns
+  // a session, same shape as login — so they land inside the app immediately.
+  const acceptInvite = useCallback(async (fields) => {
+    const res = await apiFetch('/api/v1/invitations/accept', { method: 'POST', body: fields });
+    setToken(res.data.token);
+    setUser(res.data.user);
+    setRoles(res.data.roles);
+    return res.data;
+  }, []);
+
   const logout = useCallback(() => {
     clearSession();
   }, [clearSession]);
@@ -101,6 +113,7 @@ export function AuthProvider({ children }) {
     login,
     register,
     signup,
+    acceptInvite,
     logout,
   };
 

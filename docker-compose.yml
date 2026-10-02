@@ -46,7 +46,7 @@ services:
     # already applied; seed uses onConflictDoNothing) — running them on
     # every `docker compose up` means a fresh clone "just works" with one
     # command, no separate manual migrate/seed step.
-    command: sh -c "npm install && npm run db:migrate && npm run db:seed && npm start"
+    command: sh -c "npm install && npm run db:migrate && npm run db:seed && npx nodemon -L server.js"
 
 volumes:
   jopup_pg_data:

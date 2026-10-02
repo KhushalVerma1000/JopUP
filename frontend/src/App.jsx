@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SignupPage } from './pages/SignupPage';
+import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { ClientsPage } from './pages/ClientsPage';
@@ -43,6 +44,8 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/login/:orgSlug" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          {/* Target of the link in the invitation email (backend templates/invitation.js) */}
+          <Route path="/accept-invite" element={<AcceptInvitePage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/register/:orgSlug" element={<RegisterPage />} />
 
