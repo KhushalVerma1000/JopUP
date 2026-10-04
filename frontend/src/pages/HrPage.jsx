@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock } from 'lucide-react';
+import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, Copy, Check, Briefcase, MapPin, Tag } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
+import { useHrScope } from '../hooks/useHrScope';
 import { apiFetch, ApiError } from '../lib/api';
 import { can } from '../lib/roles';
-import { PageHeader, Chips, ErrorNote, Loading, EmptyState, Sheet, Avatar, StatusPill } from '@/components/common';
+import { buildUpdateText, copyStageLabel, copyText } from '../lib/clipboard';
+import { PageHeader, Chips, ErrorNote, Loading, EmptyState, Sheet, Avatar, StatusPill, Field, Notice, Fab, RoundAction } from '@/components/common';
+import { PositionsTab } from '../components/hr/PositionsTab';
+import { PositionPicker } from '../components/hr/PositionPicker';
+import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,51 +19,58 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { relativeTime, shortDate, fullName } from '../lib/format';
 
 const COUNTRIES = [['IN', 'India +91'], ['US', 'United States +1'], ['GB', 'United Kingdom +44'], ['AE', 'UAE +971'], ['SG', 'Singapore +65'], ['CA', 'Canada +1'], ['AU', 'Australia +61']];
-const TABS = [{ key: 'pipeline', label: 'Pipeline' }, { key: 'candidates', label: 'Candidates' }, { key: 'jobs', label: 'Jobs' }];
+const TABS = [{ key: 'pipeline', label: 'Pipeline' }, { key: 'positions', label: 'Positions' }, { key: 'candidates', label: 'Candidates' }];
 const CLOSED = ['rejected', 'withdrawn', 'placed'];
 
 /**
- * HR workbench — phone-first. The job of this screen is "who do I need to
- * move or call next": a stage filter, one card per candidate, and the
- * single most likely next action (advance) as the biggest button.
+ * HR workbench — phone-first. Three tabs, in the order the work happens:
+ *   Positions  – the demand (open requisitions) you're filling
+ *   Candidates – the supply (your database)
+ *   Pipeline   – who is where, and what to move or call next
+ * Job postings are secondary and live under Positions.
  */
 export function HrPage() {
   const auth = useAuth();
+  const scope = useHrScope();
   const [tab, setTab] = useState('pipeline');
+  // Set by "Pipeline" on a position card: jump to the pipeline filtered to it.
+  const [positionFilter, setPositionFilter] = useState('');
+  // Lifted so "View pipeline" can switch to the whole team: a position's pipeline
+  // is made of several HRs' candidates, and "My candidates" would show a fraction.
+  const [scopeKey, setScopeKey] = useState('mine');
+
+  function viewPipeline(positionId) { setPositionFilter(positionId); setScopeKey('team'); setTab('pipeline'); }
 
   return (
     <AppLayout>
-      <PageHeader
-        title="Pipeline"
-        subtitle={`Hi ${auth.user.firstName} — here's what needs you today.`}
-        action={<Link to="/hr/classic" className="text-xs text-muted-foreground underline underline-offset-4">Classic view</Link>}
-      />
+      <PageHeader title="HR workbench" subtitle={`Hi ${auth.user.firstName} — here's what needs you today.`} />
       <Chips items={TABS} value={tab} onChange={setTab} className="mb-4" />
-      {tab === 'pipeline' && <PipelineTab />}
-      {tab === 'candidates' && <CandidatesTab />}
-      {tab === 'jobs' && <JobsTab />}
+      {tab === 'pipeline' && <PipelineTab scope={scope} scopeKey={scopeKey} setScopeKey={setScopeKey} positionFilter={positionFilter} setPositionFilter={setPositionFilter} />}
+      {tab === 'positions' && <PositionsTab scope={scope} onViewPipeline={viewPipeline} />}
+      {tab === 'candidates' && <CandidatesTab scope={scope} />}
     </AppLayout>
   );
 }
 
 // ── Pipeline ─────────────────────────────────────────────────────────────
-function PipelineTab() {
+function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPositionFilter }) {
   const auth = useAuth();
   const { user, roles } = auth;
+  const { myTeamIds, myTeams, positions, openPositions, reloadPositions } = scope;
   const trackers = useFetch('/api/v1/trackers');
-  const positions = useFetch('/api/v1/open-positions');
-  const teams = useFetch('/api/v1/teams');
   const workflows = useFetch('/api/v1/workflows');
   const org = useFetch('/api/v1/organizations/me');
 
   const [stagesByTemplate, setStagesByTemplate] = useState({});
-  const [scope, setScope] = useState('mine');
   const [filter, setFilter] = useState('all');
   const [busyId, setBusyId] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [rejecting, setRejecting] = useState(null);
   const [reason, setReason] = useState('');
   const [addOpen, setAddOpen] = useState(false);
+  const [updating, setUpdating] = useState(null);   // tracker being moved (stage-update sheet)
+  const [tagging, setTagging] = useState(null);     // tracker being (re)tagged to a position
+  const [copiedId, setCopiedId] = useState(null);
 
   // Stage lists per template, to know each card's "next stage".
   useEffect(() => {
@@ -73,14 +84,10 @@ function PipelineTab() {
     return () => { cancelled = true; };
   }, [workflows.data]);
 
-  const myTeamIds = useMemo(() => {
-    if (auth.isOrgAdmin) return (teams.data?.teams || []).map((t) => t.id);
-    return [...new Set([...auth.hrTeamIds, ...auth.managedTeamIds])];
-  }, [auth.isOrgAdmin, auth.hrTeamIds, auth.managedTeamIds, teams.data]);
-  const myTeams = (teams.data?.teams || []).filter((t) => myTeamIds.includes(t.id));
-
   const all = (trackers.data?.trackers || []).filter((t) => myTeamIds.includes(t.teamId));
-  const scoped = scope === 'mine' ? all.filter((t) => t.assignedHr === user.id) : all;
+  const byScope = scopeKey === 'mine' ? all.filter((t) => t.assignedHr === user.id) : all;
+  const scoped = positionFilter === 'none' ? byScope.filter((t) => !t.openPositionId)
+    : positionFilter ? byScope.filter((t) => t.openPositionId === positionFilter) : byScope;
 
   const active = scoped.filter((t) => t.status === 'active');
   const held = scoped.filter((t) => t.status === 'on_hold');
@@ -116,27 +123,68 @@ function PipelineTab() {
     return idx >= 0 ? list[idx + 1] || null : null;
   }
 
+  const VERB_LABEL = { hold: 'put this candidate on hold', resume: 'resume this candidate', block: 'reject this candidate' };
+
+  // Resolves true on success so callers (the reject sheet) can stay open on failure.
   async function act(t, verb, body) {
     setBusyId(t.id);
     setActionError(null);
     try {
       await apiFetch(`/api/v1/trackers/${t.id}/${verb}`, { method: 'POST', body });
-      await trackers.reload();
+      await Promise.all([trackers.reload(), reloadPositions()]);
+      return true;
     } catch (err) {
-      setActionError(errorMessage(err, `Could not ${verb} this candidate.`));
+      setActionError(errorMessage(err, `Could not ${VERB_LABEL[verb] || verb}.`));
+      return false;
     } finally {
       setBusyId(null);
     }
   }
 
+  async function moveStage(t, { stage, note }) {
+    await apiFetch(`/api/v1/trackers/${t.id}/advance`, { method: 'POST', body: { nextStageId: stage.id, ...(note ? { note } : {}) } });
+    await Promise.all([trackers.reload(), reloadPositions()]);
+  }
+
+  async function tagPosition(t, positionId) {
+    setTagging(null);
+    setBusyId(t.id);
+    setActionError(null);
+    try {
+      await apiFetch(`/api/v1/trackers/${t.id}`, { method: 'PATCH', body: { openPositionId: positionId } });
+      await Promise.all([trackers.reload(), reloadPositions()]);
+    } catch (err) {
+      setActionError(errorMessage(err, 'Could not tag this candidate.'));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function copyCard(t) {
+    const ok = await copyText(buildUpdateText({
+      name: t.candidateName, phone: t.candidatePhone, location: t.candidateLocation, position: t.openPositionDesignation,
+      stage: t.currentStage ? copyStageLabel(t.currentStage.stageKey, t.currentStage.name) : undefined, status: t.currentStageNote,
+    }));
+    if (ok) { setCopiedId(t.id); setTimeout(() => setCopiedId((id) => (id === t.id ? null : id)), 1500); }
+    else setActionError('Your browser blocked copying. Use the Move button instead — it shows the text so you can copy it by hand.');
+  }
+
+  const filterPositions = positions.filter((p) => all.some((t) => t.openPositionId === p.id) || p.status === 'open');
+
   return (
     <>
-      {/* Mine / Team */}
-      <div className="mb-3 inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Scope">
-        {[['mine', 'My candidates'], ['team', 'Whole team']].map(([k, label]) => (
-          <button key={k} type="button" role="tab" aria-selected={scope === k} onClick={() => { setScope(k); setFilter('all'); }}
-            className={`h-9 rounded-md px-3 text-sm font-medium ${scope === k ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>{label}</button>
-        ))}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Scope">
+          {[['mine', 'My candidates'], ['team', 'Whole team']].map(([k, label]) => (
+            <button key={k} type="button" role="tab" aria-selected={scopeKey === k} onClick={() => { setScopeKey(k); setFilter('all'); }}
+              className={`h-9 rounded-md px-3 text-sm font-medium ${scopeKey === k ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>{label}</button>
+          ))}
+        </div>
+        <NativeSelect aria-label="Filter by position" className="min-w-0 flex-1 md:max-w-xs" value={positionFilter} onChange={(e) => { setPositionFilter(e.target.value); setFilter('all'); }}>
+          <option value="">All positions</option>
+          <option value="none">Not tagged to a position</option>
+          {filterPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
+        </NativeSelect>
       </div>
       <Chips items={chips} value={filter} onChange={setFilter} className="mb-4" />
 
@@ -146,8 +194,8 @@ function PipelineTab() {
 
       {trackers.data && visible.length === 0 && (
         <EmptyState
-          title={filter === 'all' ? (scope === 'mine' ? 'Nothing assigned to you yet' : 'The pipeline is empty') : 'Nobody here'}
-          body={scope === 'mine' && canWrite ? 'Tap + to add a candidate, or switch to Whole team.' : undefined}
+          title={filter === 'all' ? (scopeKey === 'mine' ? 'No candidates assigned to you' : 'No candidates in the pipeline yet') : 'No candidates at this stage'}
+          body={filter !== 'all' || !canWrite ? undefined : scopeKey === 'mine' ? 'Add a candidate to start tracking them, or switch to Whole team to see everyone’s.' : 'Add a candidate to start tracking them through the stages.'}
         />
       )}
 
@@ -161,15 +209,31 @@ function PipelineTab() {
                 <Avatar name={t.candidateName} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-semibold">{t.candidateName}</div>
-                  <div className="truncate text-xs text-muted-foreground">{t.openPositionDesignation || 'No position'}{t.clientName ? ` · ${t.clientName}` : ''}</div>
+                  <div className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                    {t.candidateLocation && <><MapPin className="size-3 shrink-0" aria-hidden /><span className="truncate">{t.candidateLocation}</span></>}
+                  </div>
                 </div>
-                {t.candidatePhone && (
-                  <a href={`tel:${t.candidatePhone}`} aria-label={`Call ${t.candidateName}`} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground active:scale-95"><Phone className="size-5" /></a>
-                )}
+                <RoundAction onClick={() => copyCard(t)} aria-label={copiedId === t.id ? 'Copied' : `Copy details for ${t.candidateName}`}>
+                  {copiedId === t.id ? <Check className="size-5 text-primary" aria-hidden /> : <Copy className="size-5" aria-hidden />}
+                </RoundAction>
+                {t.candidatePhone && <RoundAction tone="accent" href={`tel:${t.candidatePhone}`} aria-label={`Call ${t.candidateName}`}><Phone className="size-5" aria-hidden /></RoundAction>}
               </div>
+
+              {/* Position: tap to tag / change */}
+              {canWrite && t.status !== 'rejected' && t.status !== 'placed' ? (
+                <button type="button" disabled={busy} onClick={() => setTagging(t)}
+                  className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-sm active:bg-accent ${t.openPositionId ? 'bg-card' : 'border-dashed text-muted-foreground'}`}>
+                  {t.openPositionId ? <Briefcase className="size-4 shrink-0 text-muted-foreground" /> : <Tag className="size-4 shrink-0" />}
+                  <span className="min-w-0 flex-1 truncate">{t.openPositionId ? <>{t.openPositionDesignation}{t.clientName ? <span className="text-muted-foreground"> · {t.clientName}</span> : null}</> : 'Tag to position'}</span>
+                  {t.openPositionId && <span className="shrink-0 text-xs text-muted-foreground">Change</span>}
+                </button>
+              ) : (
+                <div className="truncate text-sm text-muted-foreground">{t.openPositionDesignation || 'No position'}{t.clientName ? ` · ${t.clientName}` : ''}</div>
+              )}
 
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {t.status === 'active' && t.currentStage && <StatusPill status="trialing">{t.currentStage.name}</StatusPill>}
+                {t.status === 'active' && t.currentStageNote && <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-foreground">{t.currentStageNote}</span>}
                 {t.status !== 'active' && <StatusPill status={t.status} />}
                 {t.currentStageEnteredAt && t.status === 'active' && <span>{relativeTime(t.currentStageEnteredAt).replace(' ago', '')} in stage</span>}
                 {t.interviewDate && t.status === 'active' && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />{shortDate(t.interviewDate)}</span>}
@@ -178,8 +242,8 @@ function PipelineTab() {
               {t.status === 'active' && (
                 <div className="flex gap-2">
                   {canAdvance && (
-                    <Button className="flex-1" disabled={busy || !next} onClick={() => act(t, 'advance', { nextStageId: next.id })}>
-                      {next ? <>Move to {next.name} <ArrowRight /></> : 'Final stage'}
+                    <Button className="flex-1" disabled={busy || !next} onClick={() => setUpdating(t)}>
+                      {next ? <>Move to {next.name} <ArrowRight /></> : 'No further stages'}
                     </Button>
                   )}
                   {canHold && <Button variant="outline" size="icon" aria-label="Put on hold" disabled={busy} onClick={() => act(t, 'hold')}><Pause /></Button>}
@@ -194,55 +258,75 @@ function PipelineTab() {
         })}
       </div>
 
-      {canWrite && myTeams.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setAddOpen(true)}
-          className="pb-safe fixed bottom-20 right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-primary px-5 font-medium text-primary-foreground shadow-lg active:scale-95 md:bottom-8 md:right-8"
-        >
-          <Plus className="size-5" /> Add candidate
-        </button>
-      )}
+      {canWrite && myTeams.length > 0 && <Fab icon={Plus} onClick={() => setAddOpen(true)}>Add candidate</Fab>}
 
-      <Sheet open={!!rejecting} onClose={() => setRejecting(null)} title={`Reject ${rejecting?.candidateName || ''}?`}>
-        <form className="flex flex-col gap-4" onSubmit={async (e) => { e.preventDefault(); await act(rejecting, 'block', { reason: reason.trim() }); setRejecting(null); }}>
-          <div className="grid gap-2">
-            <Label htmlFor="rej-reason">Reason</Label>
+      <Sheet open={!!rejecting} onClose={() => setRejecting(null)} title={`Reject ${rejecting?.candidateName || ''}?`}
+        description="They'll move to Closed and drop out of the active pipeline. This can't be undone from here.">
+        <form className="flex flex-col gap-4" onSubmit={async (e) => { e.preventDefault(); if (await act(rejecting, 'block', { reason: reason.trim() })) setRejecting(null); }}>
+          <Field label="Reason" htmlFor="rej-reason">
             <Input id="rej-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Salary expectation too high" required autoFocus />
+          </Field>
+          <ErrorNote>{actionError}</ErrorNote>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setRejecting(null)}>Keep in pipeline</Button>
+            <Button type="submit" variant="destructive" className="flex-1" disabled={busyId === rejecting?.id}>Reject candidate</Button>
           </div>
-          <Button type="submit" variant="destructive">Reject candidate</Button>
         </form>
       </Sheet>
+
+      <StageUpdateSheet
+        tracker={updating}
+        stages={updating ? stagesByTemplate[updating.workflowTemplateId] || [] : []}
+        defaultStageId={updating ? nextStageOf(updating)?.id : ''}
+        onClose={() => setUpdating(null)}
+        onConfirm={(args) => moveStage(updating, args)}
+      />
+
+      <PositionPicker
+        open={!!tagging}
+        onClose={() => setTagging(null)}
+        title={`Tag ${tagging?.candidateName || ''} to a position`}
+        positions={openPositions.filter((p) => p.teamId === tagging?.teamId)}
+        selectedId={tagging?.openPositionId}
+        allowClear
+        clearLabel="Remove position tag"
+        onSelect={(id) => tagPosition(tagging, id)}
+      />
 
       <QuickAdd
         open={addOpen}
         onClose={() => setAddOpen(false)}
         teams={myTeams}
-        positions={(positions.data?.positions || []).filter((p) => p.status === 'open')}
+        positions={openPositions}
         defaultCountry={org.data?.organization?.defaultCountry || 'IN'}
         meId={user.id}
-        onAdded={() => { setAddOpen(false); setScope('mine'); setFilter('all'); trackers.reload(); }}
+        onAdded={() => { setAddOpen(false); setScopeKey('mine'); setFilter('all'); trackers.reload(); reloadPositions(); }}
       />
     </>
   );
 }
 
 function QuickAdd({ open, onClose, teams, positions, defaultCountry, meId, onAdded }) {
-  const EMPTY = { firstName: '', lastName: '', phone: '', phoneCountry: defaultCountry, teamId: '', openPositionId: '' };
+  const EMPTY = { firstName: '', lastName: '', phone: '', phoneCountry: defaultCountry, location: '', teamId: '', openPositionId: '' };
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [duplicate, setDuplicate] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
-    if (open) { setForm({ ...EMPTY, teamId: teams[0]?.id || '' }); setError(null); setDuplicate(null); }
+    if (open) { setForm({ ...EMPTY, teamId: teams[0]?.id || '' }); setError(null); setDuplicate(null); setPickerOpen(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const update = (f) => (e) => setForm((s) => ({ ...s, [f]: e.target.value }));
   const teamPositions = positions.filter((p) => p.teamId === form.teamId);
+  const chosen = positions.find((p) => p.id === form.openPositionId);
 
-  async function submit(confirmDuplicate = false) {
+  // mode 'new': create the candidate from the form (confirmDuplicate skips the
+  // phone check once HR has seen the warning). mode 'existing': track the
+  // candidate we already have for this number instead of creating a second record.
+  async function submit(mode = 'new', confirmDuplicate = false) {
     setBusy(true);
     setError(null);
     try {
@@ -252,13 +336,18 @@ function QuickAdd({ open, onClose, teams, positions, defaultCountry, meId, onAdd
           teamId: form.teamId,
           assignedHr: meId,
           openPositionId: form.openPositionId || undefined,
-          candidate: {
-            firstName: form.firstName.trim(),
-            lastName: form.lastName.trim() || undefined,
-            phone: form.phone.trim(),
-            phoneCountry: form.phoneCountry,
-            ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
-          },
+          ...(mode === 'existing'
+            ? { candidateId: duplicate.id }
+            : {
+              candidate: {
+                firstName: form.firstName.trim(),
+                lastName: form.lastName.trim() || undefined,
+                phone: form.phone.trim(),
+                phoneCountry: form.phoneCountry,
+                location: form.location.trim() || undefined,
+                ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
+              },
+            }),
         },
       });
       onAdded();
@@ -272,48 +361,67 @@ function QuickAdd({ open, onClose, teams, positions, defaultCountry, meId, onAdd
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Add candidate">
-      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); setDuplicate(null); submit(false); }}>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="grid gap-2"><Label htmlFor="qa-first">First name</Label><Input id="qa-first" value={form.firstName} onChange={update('firstName')} required autoComplete="off" /></div>
-          <div className="grid gap-2"><Label htmlFor="qa-last">Last name</Label><Input id="qa-last" value={form.lastName} onChange={update('lastName')} autoComplete="off" /></div>
-        </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
-          <div className="grid gap-2"><Label htmlFor="qa-cc">Country</Label>
-            <NativeSelect id="qa-cc" value={form.phoneCountry} onChange={update('phoneCountry')}>{COUNTRIES.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</NativeSelect></div>
-          <div className="grid gap-2"><Label htmlFor="qa-phone">Phone</Label><Input id="qa-phone" type="tel" inputMode="tel" value={form.phone} onChange={update('phone')} required autoComplete="off" /></div>
-        </div>
-        {teams.length > 1 && (
-          <div className="grid gap-2"><Label htmlFor="qa-team">Team</Label>
-            <NativeSelect id="qa-team" value={form.teamId} onChange={(e) => setForm((s) => ({ ...s, teamId: e.target.value, openPositionId: '' }))}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</NativeSelect></div>
-        )}
-        <div className="grid gap-2"><Label htmlFor="qa-pos">For position (optional)</Label>
-          <NativeSelect id="qa-pos" value={form.openPositionId} onChange={update('openPositionId')}>
-            <option value="">No position yet</option>
-            {teamPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
-          </NativeSelect></div>
-
-        {duplicate && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/30" role="alert">
-            <p className="font-medium">This number may already be in your database</p>
-            <p className="mt-1 text-muted-foreground">{fullName(duplicate) || 'A candidate'}{duplicate.phone ? ` · ${duplicate.phone}` : ''}</p>
-            <div className="mt-3 flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setDuplicate(null)}>Cancel</Button>
-              <Button type="button" className="flex-1" disabled={busy} onClick={() => submit(true)}>Add anyway</Button>
-            </div>
+    <>
+      <Sheet open={open} onClose={onClose} title="Add candidate">
+        <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); setDuplicate(null); submit('new', false); }}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="First name" htmlFor="qa-first"><Input id="qa-first" value={form.firstName} onChange={update('firstName')} required autoComplete="off" autoFocus /></Field>
+            <Field label="Last name" htmlFor="qa-last"><Input id="qa-last" value={form.lastName} onChange={update('lastName')} autoComplete="off" /></Field>
           </div>
-        )}
-        <ErrorNote>{error}</ErrorNote>
-        {!duplicate && <Button type="submit" size="lg" disabled={busy || !form.teamId}>{busy ? 'Adding…' : 'Add to my pipeline'}</Button>}
-      </form>
-    </Sheet>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+            <Field label="Country" htmlFor="qa-cc"><NativeSelect id="qa-cc" value={form.phoneCountry} onChange={update('phoneCountry')}>{COUNTRIES.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</NativeSelect></Field>
+            <Field label="Phone" htmlFor="qa-phone"><Input id="qa-phone" type="tel" inputMode="tel" value={form.phone} onChange={update('phone')} required autoComplete="off" /></Field>
+          </div>
+          <Field label="Location (optional)" htmlFor="qa-loc"><Input id="qa-loc" value={form.location} onChange={update('location')} placeholder="City" autoComplete="off" /></Field>
+          {teams.length > 1 && (
+            <Field label="Team" htmlFor="qa-team"><NativeSelect id="qa-team" value={form.teamId} onChange={(e) => setForm((s) => ({ ...s, teamId: e.target.value, openPositionId: '' }))}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</NativeSelect></Field>
+          )}
+          <Field label="Position (optional)" htmlFor="qa-pos">
+            <button id="qa-pos" type="button" onClick={() => setPickerOpen(true)} className={`flex min-h-11 items-center gap-2 rounded-md border px-3 text-left text-sm ${chosen ? '' : 'border-dashed text-muted-foreground'}`}>
+              <Briefcase className="size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{chosen ? `${chosen.designation}${chosen.clientName ? ` — ${chosen.clientName}` : ''}` : 'Tag to position'}</span>
+            </button>
+          </Field>
+
+          {duplicate && (
+            <Notice
+              tone="warn"
+              title="This number is already saved"
+              actions={<>
+                <Button type="button" disabled={busy} onClick={() => submit('existing')}>Use {duplicate.firstName || 'existing candidate'}</Button>
+                <Button type="button" variant="outline" disabled={busy} onClick={() => submit('new', true)}>Add as a new candidate</Button>
+                <Button type="button" variant="ghost" onClick={() => setDuplicate(null)}>Edit number</Button>
+              </>}
+            >
+              {fullName(duplicate) || 'A candidate'}{duplicate.phone ? ` · ${duplicate.phone}` : ''}. Use them to avoid a duplicate record, or add a separate candidate if this is a different person.
+            </Notice>
+          )}
+          <ErrorNote>{error}</ErrorNote>
+          {!duplicate && <Button type="submit" size="lg" disabled={busy || !form.teamId}>{busy ? 'Adding…' : 'Add to my pipeline'}</Button>}
+        </form>
+      </Sheet>
+      <PositionPicker
+        open={open && pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        positions={teamPositions}
+        selectedId={form.openPositionId}
+        allowClear
+        onSelect={(id) => { setForm((s) => ({ ...s, openPositionId: id || '' })); setPickerOpen(false); }}
+      />
+    </>
   );
 }
 
 // ── Candidates ───────────────────────────────────────────────────────────
-function CandidatesTab() {
+function CandidatesTab({ scope }) {
+  const { roles } = useAuth();
+  const { openPositions, reloadPositions } = scope;
   const { data, loading, error, reload } = useFetch('/api/v1/candidates');
   const [q, setQ] = useState('');
+  const [tagging, setTagging] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const canTag = can(roles, 'trackers', 'write');
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -322,6 +430,20 @@ function CandidatesTab() {
     return all.filter((c) => [fullName(c), c.email, c.phone, c.location, ...(c.skills || [])].filter(Boolean).join(' ').toLowerCase().includes(needle));
   }, [data, q]);
 
+  async function tag(candidate, positionId) {
+    const position = openPositions.find((p) => p.id === positionId);
+    setTagging(null);
+    setActionError(null);
+    setNotice(null);
+    try {
+      await apiFetch('/api/v1/trackers', { method: 'POST', body: { teamId: position.teamId, candidateId: candidate.id, openPositionId: position.id } });
+      setNotice(`${fullName(candidate)} tagged to ${position.designation}.`);
+      reloadPositions();
+    } catch (err) {
+      setActionError(errorMessage(err, 'Could not tag this candidate.'));
+    }
+  }
+
   return (
     <>
       <div className="relative mb-4">
@@ -329,6 +451,8 @@ function CandidatesTab() {
         <Input type="search" placeholder="Search name, phone, skill…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" aria-label="Search candidates" />
       </div>
       <ErrorNote onRetry={reload}>{error}</ErrorNote>
+      <ErrorNote>{actionError}</ErrorNote>
+      {notice && <Notice tone="good" className="mb-4">{notice}</Notice>}
       {loading && !data && <Loading />}
       {data && list.length === 0 && <EmptyState title="No candidates found" />}
       <div className="grid gap-3 md:grid-cols-2">
@@ -340,69 +464,24 @@ function CandidatesTab() {
                 <div className="truncate font-semibold">{fullName(c)}</div>
                 <div className="truncate text-xs text-muted-foreground">{c.location || 'Location not set'} · {String(c.source).replace(/_/g, ' ')}</div>
               </div>
-              {c.phone && <a href={`tel:${c.phone}`} aria-label={`Call ${fullName(c)}`} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground"><Phone className="size-5" /></a>}
-              {c.email && <a href={`mailto:${c.email}`} aria-label={`Email ${fullName(c)}`} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted"><Mail className="size-5" /></a>}
+              {c.phone && <RoundAction tone="accent" href={`tel:${c.phone}`} aria-label={`Call ${fullName(c)}`}><Phone className="size-5" aria-hidden /></RoundAction>}
+              {c.email && <RoundAction href={`mailto:${c.email}`} aria-label={`Email ${fullName(c)}`}><Mail className="size-5" aria-hidden /></RoundAction>}
             </div>
             {(c.skills || []).length > 0 && (
               <div className="flex flex-wrap gap-1">{c.skills.slice(0, 5).map((s) => <span key={s} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{s}</span>)}</div>
             )}
+            {canTag && <Button variant="outline" size="sm" className="self-start" onClick={() => { setNotice(null); setTagging(c); }}><Tag /> Tag to position</Button>}
           </Card>
         ))}
       </div>
-    </>
-  );
-}
 
-// ── Jobs ─────────────────────────────────────────────────────────────────
-function JobsTab() {
-  const { roles } = useAuth();
-  const { data, loading, error, reload } = useFetch('/api/v1/job-postings');
-  const [busyId, setBusyId] = useState(null);
-  const [actionError, setActionError] = useState(null);
-  const canPublish = can(roles, 'job_postings', 'publish');
-  const canClose = can(roles, 'job_postings', 'close');
-
-  async function act(job, action) {
-    setBusyId(job.id);
-    setActionError(null);
-    try {
-      await apiFetch(`/api/v1/job-postings/${job.id}/${action}`, { method: 'POST' });
-      await reload();
-    } catch (err) {
-      setActionError(errorMessage(err, `Could not ${action} this job.`));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  const jobs = data?.jobs || [];
-  return (
-    <>
-      <ErrorNote onRetry={reload}>{error}</ErrorNote>
-      <ErrorNote>{actionError}</ErrorNote>
-      {loading && !data && <Loading />}
-      {data && jobs.length === 0 && <EmptyState title="No job postings yet" body="Create one from the classic view." action={<Button asChild variant="outline"><Link to="/hr/classic">Open classic view</Link></Button>} />}
-      <div className="grid gap-3 md:grid-cols-2">
-        {jobs.map((j) => (
-          <Card key={j.id} className="gap-3 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate font-semibold">{j.title}</div>
-                <div className="truncate text-xs text-muted-foreground">{[j.location, String(j.workMode).replace('_', ' '), String(j.employmentType).replace('_', ' ')].filter(Boolean).join(' · ')}</div>
-              </div>
-              <StatusPill status={j.status} />
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{j.vacancies} vacanc{j.vacancies === 1 ? 'y' : 'ies'}</span>
-              <span>{j.publishedAt ? `Published ${relativeTime(j.publishedAt)}` : 'Not published'}</span>
-            </div>
-            <div className="flex gap-2">
-              {canPublish && ['draft', 'paused'].includes(j.status) && <Button className="flex-1" disabled={busyId === j.id} onClick={() => act(j, 'publish')}>Publish</Button>}
-              {canClose && j.status === 'published' && <Button className="flex-1" variant="outline" disabled={busyId === j.id} onClick={() => act(j, 'close')}>Close</Button>}
-            </div>
-          </Card>
-        ))}
-      </div>
+      <PositionPicker
+        open={!!tagging}
+        onClose={() => setTagging(null)}
+        title={`Tag ${tagging ? fullName(tagging) : ''} to a position`}
+        positions={openPositions}
+        onSelect={(id) => tag(tagging, id)}
+      />
     </>
   );
 }

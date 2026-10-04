@@ -3,6 +3,7 @@ const { z } = require('zod');
 const inlineCandidateSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().optional(),
+  location: z.string().optional(),
   phone: z.string().min(1, 'Phone is required'),
   // ISO 3166-1 alpha-2 — required alongside phone here too (ADR-2 / global
   // platform: a bare number is ambiguous without knowing its country).
@@ -33,7 +34,34 @@ const createTrackerSchema = z.object({
 const advanceStageSchema = z.object({
   body: z.object({
     nextStageId: z.string().uuid('Invalid stage ID'),
+    // Free-text status HR attaches to the move ("Reached", "Not reachable"…),
+    // stored on the new stage-log row.
+    note: z.string().max(500).optional(),
   }),
+  params: z.object({
+    id: z.string().uuid('Invalid tracker ID'),
+  }),
+});
+
+// Tag many existing candidates to one open position in one call.
+const tagCandidatesSchema = z.object({
+  body: z.object({
+    teamId: z.string().uuid('Invalid team ID'),
+    openPositionId: z.string().uuid('Invalid open position ID'),
+    candidateIds: z.array(z.string().uuid('Invalid candidate ID')).min(1, 'Choose at least one candidate').max(100, 'Tag up to 100 candidates at a time'),
+  }),
+});
+
+// Re-tag a tracker to a different open position (or untag with null) and
+// adjust the dates/notes — the "tag candidate to position" path for
+// candidates already in the pipeline.
+const updateTrackerSchema = z.object({
+  body: z.object({
+    openPositionId: z.string().uuid('Invalid open position ID').nullable().optional(),
+    interviewDate: z.string().datetime().nullable().optional(),
+    lineupDate: z.string().datetime().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' }),
   params: z.object({
     id: z.string().uuid('Invalid tracker ID'),
   }),
@@ -69,6 +97,8 @@ const trackerParamsSchema = z.object({
 module.exports = {
   createTrackerSchema,
   advanceStageSchema,
+  tagCandidatesSchema,
+  updateTrackerSchema,
   blockTrackerSchema,
   addActionSchema,
   trackerParamsSchema,

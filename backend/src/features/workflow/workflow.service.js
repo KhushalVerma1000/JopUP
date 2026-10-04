@@ -76,14 +76,13 @@ class WorkflowService {
     await auditWrite(orgId, null, 'delete', 'workflow_template', id, oldT, null, 'workflow');
   }
 
+  /**
+   * Creates a team's default pipeline: the template and all its stages in ONE
+   * transaction, so no other request can ever see a default template that has
+   * no stages yet. wt_one_default_per_team makes a concurrent second attempt
+   * fail with a unique violation instead of creating a second default.
+   */
   async seedDefaultWorkflow(orgId, teamId, userId) {
-    const template = await this.createTemplate(orgId, {
-      name: 'Default Pipeline',
-      teamId,
-      description: 'Standard recruiting process',
-      isDefault: true
-    }, userId);
-    
     const defaultStages = [
       { name: 'Applied', stageKey: 'applied', orderIndex: 10, isBlockable: true, isFinalSuccess: false },
       { name: 'Screening', stageKey: 'screening', orderIndex: 20, isBlockable: true, isFinalSuccess: false },
@@ -93,11 +92,21 @@ class WorkflowService {
       { name: 'Offer', stageKey: 'offer', orderIndex: 60, isBlockable: true, isFinalSuccess: false },
       { name: 'Joined', stageKey: 'joined', orderIndex: 70, isBlockable: false, isFinalSuccess: true }
     ];
-    
-    for (const s of defaultStages) {
-      await this.createStage(template.id, s);
-    }
-    
+
+    const template = await db.transaction(async (tx) => {
+      const [t] = await tx.insert(schema.workflowTemplate).values({
+        name: 'Default Pipeline',
+        teamId,
+        description: 'Standard recruiting process',
+        isDefault: true,
+        organisationId: orgId,
+        createdBy: userId,
+      }).returning();
+      await tx.insert(schema.workflowStage).values(defaultStages.map((st) => ({ ...st, workflowTemplateId: t.id })));
+      return t;
+    });
+
+    await auditWrite(orgId, userId, 'create', 'workflow_template', template.id, null, template, 'workflow');
     return template;
   }
 

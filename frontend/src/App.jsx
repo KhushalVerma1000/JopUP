@@ -11,7 +11,6 @@ import { ClientsPage } from './pages/ClientsPage';
 import { ManagerialPage } from './pages/ManagerialPage';
 import { ManagerPage } from './pages/ManagerPage';
 import { HrPage } from './pages/HrPage';
-import { HrClassicPage } from './pages/HrClassicPage';
 import { PlatformOverview } from './pages/platform/PlatformOverview';
 import { PlatformOrganizations } from './pages/platform/PlatformOrganizations';
 import { PlatformOrgDetail } from './pages/platform/PlatformOrgDetail';
@@ -59,7 +58,6 @@ export default function App() {
           <Route path="/dashboard" element={guard(<DashboardPage />, orgAdminOnly)} />
           <Route path="/manager" element={guard(<ManagerPage />, managerArea)} />
           <Route path="/hr" element={guard(<HrPage />, pipelineArea)} />
-          <Route path="/hr/classic" element={guard(<HrClassicPage />, pipelineArea)} />
           <Route path="/clients" element={guard(<ClientsPage />, tenantStaff)} />
           <Route path="/employees" element={guard(<EmployeesPage />, managerArea)} />
           <Route path="/managerial" element={guard(<ManagerialPage />, managerArea)} />

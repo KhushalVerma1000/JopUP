@@ -26,7 +26,8 @@
  *   → Interview(50) → Offer(60) → Joined(70)
  */
 
-import { pgTable, uuid, text, integer, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { pkUuid, orgId, timestamps, createdAt } from "./_helpers";
 import { organisation, team, user } from "./02-identity";
 
@@ -54,6 +55,9 @@ export const workflowTemplate = pgTable("workflow_template", {
 }, (t) => [
   index("wt_org_idx").on(t.organisationId),
   index("wt_team_idx").on(t.teamId),
+  // The "exactly one default per team" rule, enforced by the database. Without
+  // it, N simultaneous first-time requests each auto-provision a default.
+  uniqueIndex("wt_one_default_per_team").on(t.teamId).where(sql`${t.isDefault} = true`),
 ]);
 
 /**

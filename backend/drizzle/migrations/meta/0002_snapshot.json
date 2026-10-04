@@ -1,6 +1,6 @@
 {
-  "id": "b7e17ead-20ed-4809-918c-64874d55ca85",
-  "prevId": "9b96c30c-1b1a-4698-9a8b-854457b10287",
+  "id": "c5b28452-d1fd-41ff-92ba-725c905bdf6e",
+  "prevId": "dc22fce7-91a1-4d68-9dfb-e789c75a94d6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -20,8 +20,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "team_id": {
-          "name": "team_id",
+        "candidate_id": {
+          "name": "candidate_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -30,25 +30,13 @@
           "name": "job_posting_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "candidate_id": {
-          "name": "candidate_id",
+        "tracker_id": {
+          "name": "tracker_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "workflow_template_id": {
-          "name": "workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "assigned_hr": {
-          "name": "assigned_hr",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "entry_source": {
           "name": "entry_source",
@@ -57,36 +45,8 @@
           "notNull": true,
           "default": "'job_post'"
         },
-        "status": {
-          "name": "status",
-          "type": "application_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "applied_at": {
           "name": "applied_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -99,21 +59,6 @@
           "columns": [
             {
               "expression": "organisation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "app_team_idx": {
-          "name": "app_team_idx",
-          "columns": [
-            {
-              "expression": "team_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -154,17 +99,38 @@
           "method": "btree",
           "with": {}
         },
-        "app_status_idx": {
-          "name": "app_status_idx",
+        "app_tracker_idx": {
+          "name": "app_tracker_idx",
           "columns": [
             {
-              "expression": "status",
+              "expression": "tracker_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "app_candidate_job_unique_idx": {
+          "name": "app_candidate_job_unique_idx",
+          "columns": [
+            {
+              "expression": "candidate_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "job_posting_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -184,12 +150,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "application_team_id_team_id_fk": {
-          "name": "application_team_id_team_id_fk",
+        "application_candidate_id_candidate_id_fk": {
+          "name": "application_candidate_id_candidate_id_fk",
           "tableFrom": "application",
-          "tableTo": "team",
+          "tableTo": "candidate",
           "columnsFrom": [
-            "team_id"
+            "candidate_id"
           ],
           "columnsTo": [
             "id"
@@ -207,215 +173,20 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "application_candidate_id_candidate_id_fk": {
-          "name": "application_candidate_id_candidate_id_fk",
+        "application_tracker_id_candidate_tracker_id_fk": {
+          "name": "application_tracker_id_candidate_tracker_id_fk",
           "tableFrom": "application",
-          "tableTo": "candidate",
+          "tableTo": "candidate_tracker",
           "columnsFrom": [
-            "candidate_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "application_workflow_template_id_workflow_template_id_fk": {
-          "name": "application_workflow_template_id_workflow_template_id_fk",
-          "tableFrom": "application",
-          "tableTo": "workflow_template",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "application_assigned_hr_user_id_fk": {
-          "name": "application_assigned_hr_user_id_fk",
-          "tableFrom": "application",
-          "tableTo": "user",
-          "columnsFrom": [
-            "assigned_hr"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.application_stage_log": {
-      "name": "application_stage_log",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "application_id": {
-          "name": "application_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stage_id": {
-          "name": "stage_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "moved_by": {
-          "name": "moved_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "stage_log_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "block_reason": {
-          "name": "block_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stage_data": {
-          "name": "stage_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'::jsonb"
-        },
-        "entered_at": {
-          "name": "entered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "exited_at": {
-          "name": "exited_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "asl_application_idx": {
-          "name": "asl_application_idx",
-          "columns": [
-            {
-              "expression": "application_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "asl_stage_idx": {
-          "name": "asl_stage_idx",
-          "columns": [
-            {
-              "expression": "stage_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "asl_current_idx": {
-          "name": "asl_current_idx",
-          "columns": [
-            {
-              "expression": "application_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "exited_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "application_stage_log_application_id_application_id_fk": {
-          "name": "application_stage_log_application_id_application_id_fk",
-          "tableFrom": "application_stage_log",
-          "tableTo": "application",
-          "columnsFrom": [
-            "application_id"
+            "tracker_id"
           ],
           "columnsTo": [
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "application_stage_log_stage_id_workflow_stage_id_fk": {
-          "name": "application_stage_log_stage_id_workflow_stage_id_fk",
-          "tableFrom": "application_stage_log",
-          "tableTo": "workflow_stage",
-          "columnsFrom": [
-            "stage_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "application_stage_log_moved_by_user_id_fk": {
-          "name": "application_stage_log_moved_by_user_id_fk",
-          "tableFrom": "application_stage_log",
-          "tableTo": "user",
-          "columnsFrom": [
-            "moved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1207,7 +978,7 @@
           "name": "created_by",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "updated_by": {
           "name": "updated_by",
@@ -1225,7 +996,7 @@
           "name": "last_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "email": {
           "name": "email",
@@ -1235,6 +1006,18 @@
         },
         "phone": {
           "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone_country": {
+          "name": "phone_country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone_normalized": {
+          "name": "phone_normalized",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1376,6 +1159,27 @@
             },
             {
               "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "candidate_phone_org_idx": {
+          "name": "candidate_phone_org_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "phone_normalized",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1581,6 +1385,584 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.candidate_tracker": {
+      "name": "candidate_tracker",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "candidate_id": {
+          "name": "candidate_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "open_position_id": {
+          "name": "open_position_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_template_id": {
+          "name": "workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_hr": {
+          "name": "assigned_hr",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "candidate_tracker_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "interview_date": {
+          "name": "interview_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lineup_date": {
+          "name": "lineup_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ctr_org_idx": {
+          "name": "ctr_org_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctr_team_idx": {
+          "name": "ctr_team_idx",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctr_candidate_idx": {
+          "name": "ctr_candidate_idx",
+          "columns": [
+            {
+              "expression": "candidate_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctr_open_position_idx": {
+          "name": "ctr_open_position_idx",
+          "columns": [
+            {
+              "expression": "open_position_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctr_status_idx": {
+          "name": "ctr_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctr_one_live_tag_uq": {
+          "name": "ctr_one_live_tag_uq",
+          "columns": [
+            {
+              "expression": "candidate_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "open_position_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"candidate_tracker\".\"open_position_id\" is not null and \"candidate_tracker\".\"status\" in ('active', 'on_hold')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "candidate_tracker_organisation_id_organisation_id_fk": {
+          "name": "candidate_tracker_organisation_id_organisation_id_fk",
+          "tableFrom": "candidate_tracker",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_team_id_team_id_fk": {
+          "name": "candidate_tracker_team_id_team_id_fk",
+          "tableFrom": "candidate_tracker",
+          "tableTo": "team",
+          "columnsFrom": [
+            "team_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_candidate_id_candidate_id_fk": {
+          "name": "candidate_tracker_candidate_id_candidate_id_fk",
+          "tableFrom": "candidate_tracker",
+          "tableTo": "candidate",
+          "columnsFrom": [
+            "candidate_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_open_position_id_open_position_id_fk": {
+          "name": "candidate_tracker_open_position_id_open_position_id_fk",
+          "tableFrom": "candidate_tracker",
+          "tableTo": "open_position",
+          "columnsFrom": [
+            "open_position_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_workflow_template_id_workflow_template_id_fk": {
+          "name": "candidate_tracker_workflow_template_id_workflow_template_id_fk",
+          "tableFrom": "candidate_tracker",
+          "tableTo": "workflow_template",
+          "columnsFrom": [
+            "workflow_template_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_assigned_hr_user_id_fk": {
+          "name": "candidate_tracker_assigned_hr_user_id_fk",
+          "tableFrom": "candidate_tracker",
+          "tableTo": "user",
+          "columnsFrom": [
+            "assigned_hr"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.candidate_tracker_action": {
+      "name": "candidate_tracker_action",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "stage_log_id": {
+          "name": "stage_log_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "performed_by": {
+          "name": "performed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action_type": {
+          "name": "action_type",
+          "type": "candidate_tracker_action_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'::jsonb"
+        },
+        "credit_transaction_id": {
+          "name": "credit_transaction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "performed_at": {
+          "name": "performed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "cta_log_idx": {
+          "name": "cta_log_idx",
+          "columns": [
+            {
+              "expression": "stage_log_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "cta_performer_idx": {
+          "name": "cta_performer_idx",
+          "columns": [
+            {
+              "expression": "performed_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "cta_type_idx": {
+          "name": "cta_type_idx",
+          "columns": [
+            {
+              "expression": "action_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "candidate_tracker_action_stage_log_id_candidate_tracker_stage_log_id_fk": {
+          "name": "candidate_tracker_action_stage_log_id_candidate_tracker_stage_log_id_fk",
+          "tableFrom": "candidate_tracker_action",
+          "tableTo": "candidate_tracker_stage_log",
+          "columnsFrom": [
+            "stage_log_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_action_performed_by_user_id_fk": {
+          "name": "candidate_tracker_action_performed_by_user_id_fk",
+          "tableFrom": "candidate_tracker_action",
+          "tableTo": "user",
+          "columnsFrom": [
+            "performed_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.candidate_tracker_stage_log": {
+      "name": "candidate_tracker_stage_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tracker_id": {
+          "name": "tracker_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage_id": {
+          "name": "stage_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "moved_by": {
+          "name": "moved_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "candidate_tracker_stage_log_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "block_reason": {
+          "name": "block_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stage_data": {
+          "name": "stage_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'::jsonb"
+        },
+        "entered_at": {
+          "name": "entered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "exited_at": {
+          "name": "exited_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ctsl_tracker_idx": {
+          "name": "ctsl_tracker_idx",
+          "columns": [
+            {
+              "expression": "tracker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctsl_stage_idx": {
+          "name": "ctsl_stage_idx",
+          "columns": [
+            {
+              "expression": "stage_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ctsl_current_idx": {
+          "name": "ctsl_current_idx",
+          "columns": [
+            {
+              "expression": "tracker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "exited_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "candidate_tracker_stage_log_tracker_id_candidate_tracker_id_fk": {
+          "name": "candidate_tracker_stage_log_tracker_id_candidate_tracker_id_fk",
+          "tableFrom": "candidate_tracker_stage_log",
+          "tableTo": "candidate_tracker",
+          "columnsFrom": [
+            "tracker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_stage_log_stage_id_workflow_stage_id_fk": {
+          "name": "candidate_tracker_stage_log_stage_id_workflow_stage_id_fk",
+          "tableFrom": "candidate_tracker_stage_log",
+          "tableTo": "workflow_stage",
+          "columnsFrom": [
+            "stage_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "candidate_tracker_stage_log_moved_by_user_id_fk": {
+          "name": "candidate_tracker_stage_log_moved_by_user_id_fk",
+          "tableFrom": "candidate_tracker_stage_log",
+          "tableTo": "user",
+          "columnsFrom": [
+            "moved_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2684,6 +3066,490 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.daily_tracker_run": {
+      "name": "daily_tracker_run",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schedule_id": {
+          "name": "schedule_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tracker_date": {
+          "name": "tracker_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "daily_tracker_trigger",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "daily_tracker_run_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "tracker_id": {
+          "name": "tracker_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email_message_id": {
+          "name": "email_message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "row_count": {
+          "name": "row_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "recipient_count": {
+          "name": "recipient_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "triggered_by": {
+          "name": "triggered_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "dtr_schedule_date_idx": {
+          "name": "dtr_schedule_date_idx",
+          "columns": [
+            {
+              "expression": "schedule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tracker_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dtr_org_idx": {
+          "name": "dtr_org_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dtr_one_scheduled_per_day": {
+          "name": "dtr_one_scheduled_per_day",
+          "columns": [
+            {
+              "expression": "schedule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tracker_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"daily_tracker_run\".\"trigger\" = 'scheduled' and \"daily_tracker_run\".\"status\" <> 'failed'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "daily_tracker_run_organisation_id_organisation_id_fk": {
+          "name": "daily_tracker_run_organisation_id_organisation_id_fk",
+          "tableFrom": "daily_tracker_run",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_run_schedule_id_daily_tracker_schedule_id_fk": {
+          "name": "daily_tracker_run_schedule_id_daily_tracker_schedule_id_fk",
+          "tableFrom": "daily_tracker_run",
+          "tableTo": "daily_tracker_schedule",
+          "columnsFrom": [
+            "schedule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_run_tracker_id_tracker_id_fk": {
+          "name": "daily_tracker_run_tracker_id_tracker_id_fk",
+          "tableFrom": "daily_tracker_run",
+          "tableTo": "tracker",
+          "columnsFrom": [
+            "tracker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_run_email_message_id_email_message_id_fk": {
+          "name": "daily_tracker_run_email_message_id_email_message_id_fk",
+          "tableFrom": "daily_tracker_run",
+          "tableTo": "email_message",
+          "columnsFrom": [
+            "email_message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_run_triggered_by_user_id_fk": {
+          "name": "daily_tracker_run_triggered_by_user_id_fk",
+          "tableFrom": "daily_tracker_run",
+          "tableTo": "user",
+          "columnsFrom": [
+            "triggered_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.daily_tracker_schedule": {
+      "name": "daily_tracker_schedule",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "send_time": {
+          "name": "send_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'18:00'"
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "send_days": {
+          "name": "send_days",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[1,2,3,4,5,6]'::jsonb"
+        },
+        "skip_if_empty": {
+          "name": "skip_if_empty",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "to_emails": {
+          "name": "to_emails",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "cc_emails": {
+          "name": "cc_emails",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "include_client_contacts": {
+          "name": "include_client_contacts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "dts_org_idx": {
+          "name": "dts_org_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dts_team_idx": {
+          "name": "dts_team_idx",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dts_due_idx": {
+          "name": "dts_due_idx",
+          "columns": [
+            {
+              "expression": "enabled",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dts_one_per_team_client": {
+          "name": "dts_one_per_team_client",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"daily_tracker_schedule\".\"client_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dts_one_internal_per_team": {
+          "name": "dts_one_internal_per_team",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"daily_tracker_schedule\".\"client_id\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "daily_tracker_schedule_organisation_id_organisation_id_fk": {
+          "name": "daily_tracker_schedule_organisation_id_organisation_id_fk",
+          "tableFrom": "daily_tracker_schedule",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_schedule_team_id_team_id_fk": {
+          "name": "daily_tracker_schedule_team_id_team_id_fk",
+          "tableFrom": "daily_tracker_schedule",
+          "tableTo": "team",
+          "columnsFrom": [
+            "team_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_schedule_client_id_client_id_fk": {
+          "name": "daily_tracker_schedule_client_id_client_id_fk",
+          "tableFrom": "daily_tracker_schedule",
+          "tableTo": "client",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "daily_tracker_schedule_created_by_user_id_fk": {
+          "name": "daily_tracker_schedule_created_by_user_id_fk",
+          "tableFrom": "daily_tracker_schedule",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.document": {
       "name": "document",
       "schema": "",
@@ -2700,8 +3566,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "application_id": {
-          "name": "application_id",
+        "tracker_id": {
+          "name": "tracker_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -2759,11 +3625,11 @@
         }
       },
       "indexes": {
-        "doc_application_idx": {
-          "name": "doc_application_idx",
+        "doc_tracker_idx": {
+          "name": "doc_tracker_idx",
           "columns": [
             {
-              "expression": "application_id",
+              "expression": "tracker_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2804,12 +3670,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "document_application_id_application_id_fk": {
-          "name": "document_application_id_application_id_fk",
+        "document_tracker_id_candidate_tracker_id_fk": {
+          "name": "document_tracker_id_candidate_tracker_id_fk",
           "tableFrom": "document",
-          "tableTo": "application",
+          "tableTo": "candidate_tracker",
           "columnsFrom": [
-            "application_id"
+            "tracker_id"
           ],
           "columnsTo": [
             "id"
@@ -5175,6 +6041,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "open_position_id": {
+          "name": "open_position_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "workflow_template_id": {
           "name": "workflow_template_id",
           "type": "uuid",
@@ -5361,6 +6233,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "job_open_position_idx": {
+          "name": "job_open_position_idx",
+          "columns": [
+            {
+              "expression": "open_position_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5414,6 +6301,19 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "job_posting_open_position_id_open_position_id_fk": {
+          "name": "job_posting_open_position_id_open_position_id_fk",
+          "tableFrom": "job_posting",
+          "tableTo": "open_position",
+          "columnsFrom": [
+            "open_position_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -5997,6 +6897,216 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.open_position": {
+      "name": "open_position",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "designation": {
+          "name": "designation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "experience_required": {
+          "name": "experience_required",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vacancies": {
+          "name": "vacancies",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "status": {
+          "name": "status",
+          "type": "open_position_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "op_org_idx": {
+          "name": "op_org_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "op_team_idx": {
+          "name": "op_team_idx",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "op_client_idx": {
+          "name": "op_client_idx",
+          "columns": [
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "op_status_idx": {
+          "name": "op_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "open_position_organisation_id_organisation_id_fk": {
+          "name": "open_position_organisation_id_organisation_id_fk",
+          "tableFrom": "open_position",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "open_position_team_id_team_id_fk": {
+          "name": "open_position_team_id_team_id_fk",
+          "tableFrom": "open_position",
+          "tableTo": "team",
+          "columnsFrom": [
+            "team_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "open_position_client_id_client_id_fk": {
+          "name": "open_position_client_id_client_id_fk",
+          "tableFrom": "open_position",
+          "tableTo": "client",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "open_position_created_by_user_id_fk": {
+          "name": "open_position_created_by_user_id_fk",
+          "tableFrom": "open_position",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.org_module_override": {
       "name": "org_module_override",
       "schema": "",
@@ -6156,6 +7266,12 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'UTC'"
+        },
+        "default_country": {
+          "name": "default_country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -7148,143 +8264,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.stage_action": {
-      "name": "stage_action",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "application_stage_log_id": {
-          "name": "application_stage_log_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "performed_by": {
-          "name": "performed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "action_type": {
-          "name": "action_type",
-          "type": "stage_action_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'::jsonb"
-        },
-        "credit_transaction_id": {
-          "name": "credit_transaction_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "performed_at": {
-          "name": "performed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "sa_log_idx": {
-          "name": "sa_log_idx",
-          "columns": [
-            {
-              "expression": "application_stage_log_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sa_performer_idx": {
-          "name": "sa_performer_idx",
-          "columns": [
-            {
-              "expression": "performed_by",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sa_type_idx": {
-          "name": "sa_type_idx",
-          "columns": [
-            {
-              "expression": "action_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "stage_action_application_stage_log_id_application_stage_log_id_fk": {
-          "name": "stage_action_application_stage_log_id_application_stage_log_id_fk",
-          "tableFrom": "stage_action",
-          "tableTo": "application_stage_log",
-          "columnsFrom": [
-            "application_stage_log_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "stage_action_performed_by_user_id_fk": {
-          "name": "stage_action_performed_by_user_id_fk",
-          "tableFrom": "stage_action",
-          "tableTo": "user",
-          "columnsFrom": [
-            "performed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.subscription": {
       "name": "subscription",
       "schema": "",
@@ -8098,6 +9077,54 @@
           "primaryKey": false,
           "notNull": false
         },
+        "requested_team_id": {
+          "name": "requested_team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_role_id": {
+          "name": "requested_role_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_manager_id": {
+          "name": "requested_manager_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approved_by": {
+          "name": "approved_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approved_at": {
+          "name": "approved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rejected_by": {
+          "name": "rejected_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rejected_at": {
+          "name": "rejected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rejection_reason": {
+          "name": "rejection_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -8149,6 +9176,36 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "user_status_idx": {
+          "name": "user_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "user_requested_manager_idx": {
+          "name": "user_requested_manager_idx",
+          "columns": [
+            {
+              "expression": "requested_manager_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -8163,6 +9220,71 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_requested_team_id_team_id_fk": {
+          "name": "user_requested_team_id_team_id_fk",
+          "tableFrom": "user",
+          "tableTo": "team",
+          "columnsFrom": [
+            "requested_team_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "user_requested_role_id_role_id_fk": {
+          "name": "user_requested_role_id_role_id_fk",
+          "tableFrom": "user",
+          "tableTo": "role",
+          "columnsFrom": [
+            "requested_role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "user_requested_manager_id_user_id_fk": {
+          "name": "user_requested_manager_id_user_id_fk",
+          "tableFrom": "user",
+          "tableTo": "user",
+          "columnsFrom": [
+            "requested_manager_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "user_approved_by_user_id_fk": {
+          "name": "user_approved_by_user_id_fk",
+          "tableFrom": "user",
+          "tableTo": "user",
+          "columnsFrom": [
+            "approved_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "user_rejected_by_user_id_fk": {
+          "name": "user_rejected_by_user_id_fk",
+          "tableFrom": "user",
+          "tableTo": "user",
+          "columnsFrom": [
+            "rejected_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -9186,6 +10308,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "wt_one_default_per_team": {
+          "name": "wt_one_default_per_team",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"workflow_template\".\"is_default\" = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -9237,17 +10375,6 @@
     }
   },
   "enums": {
-    "public.application_status": {
-      "name": "application_status",
-      "schema": "public",
-      "values": [
-        "active",
-        "placed",
-        "rejected",
-        "withdrawn",
-        "on_hold"
-      ]
-    },
     "public.bench_activity_type": {
       "name": "bench_activity_type",
       "schema": "public",
@@ -9342,6 +10469,24 @@
         "refunded",
         "expired",
         "adjusted"
+      ]
+    },
+    "public.daily_tracker_run_status": {
+      "name": "daily_tracker_run_status",
+      "schema": "public",
+      "values": [
+        "running",
+        "sent",
+        "skipped",
+        "failed"
+      ]
+    },
+    "public.daily_tracker_trigger": {
+      "name": "daily_tracker_trigger",
+      "schema": "public",
+      "values": [
+        "scheduled",
+        "manual"
       ]
     },
     "public.document_type": {
@@ -9569,6 +10714,16 @@
         "hidden"
       ]
     },
+    "public.open_position_status": {
+      "name": "open_position_status",
+      "schema": "public",
+      "values": [
+        "open",
+        "on_hold",
+        "filled",
+        "cancelled"
+      ]
+    },
     "public.org_status": {
       "name": "org_status",
       "schema": "public",
@@ -9679,8 +10834,28 @@
         "other"
       ]
     },
-    "public.stage_action_type": {
-      "name": "stage_action_type",
+    "public.strategy_status": {
+      "name": "strategy_status",
+      "schema": "public",
+      "values": [
+        "draft",
+        "active",
+        "archived"
+      ]
+    },
+    "public.subscription_status": {
+      "name": "subscription_status",
+      "schema": "public",
+      "values": [
+        "trialing",
+        "active",
+        "past_due",
+        "cancelled",
+        "paused"
+      ]
+    },
+    "public.candidate_tracker_action_type": {
+      "name": "candidate_tracker_action_type",
       "schema": "public",
       "values": [
         "note",
@@ -9700,8 +10875,8 @@
         "screening_completed"
       ]
     },
-    "public.stage_log_status": {
-      "name": "stage_log_status",
+    "public.candidate_tracker_stage_log_status": {
+      "name": "candidate_tracker_stage_log_status",
       "schema": "public",
       "values": [
         "active",
@@ -9711,24 +10886,15 @@
         "withdrawn"
       ]
     },
-    "public.strategy_status": {
-      "name": "strategy_status",
+    "public.candidate_tracker_status": {
+      "name": "candidate_tracker_status",
       "schema": "public",
       "values": [
-        "draft",
         "active",
-        "archived"
-      ]
-    },
-    "public.subscription_status": {
-      "name": "subscription_status",
-      "schema": "public",
-      "values": [
-        "trialing",
-        "active",
-        "past_due",
-        "cancelled",
-        "paused"
+        "placed",
+        "rejected",
+        "withdrawn",
+        "on_hold"
       ]
     },
     "public.tracker_type": {
@@ -9750,6 +10916,8 @@
         "active",
         "inactive",
         "invited",
+        "pending_approval",
+        "rejected",
         "suspended"
       ]
     },

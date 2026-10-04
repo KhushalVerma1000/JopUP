@@ -4,7 +4,7 @@
  */
 const RESEND_URL = 'https://api.resend.com/emails';
 
-async function send({ from, to, subject, html, text, replyTo }) {
+async function send({ from, to, cc, bcc, subject, html, text, replyTo }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error('RESEND_API_KEY is not set');
 
@@ -17,6 +17,8 @@ async function send({ from, to, subject, html, text, replyTo }) {
     body: JSON.stringify({
       from,
       to,
+      ...(cc ? { cc } : {}),
+      ...(bcc ? { bcc } : {}),
       subject,
       html,
       text,

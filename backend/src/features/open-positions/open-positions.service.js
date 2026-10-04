@@ -1,5 +1,5 @@
 const { db, schema } = require('../../utils/db');
-const { eq, and, inArray } = require('drizzle-orm');
+const { eq, and, inArray, sql } = require('drizzle-orm');
 const { NotFoundError } = require('../../utils/errors');
 const { auditWrite } = require('../../utils/audit');
 
@@ -10,6 +10,11 @@ class OpenPositionsService {
     if (filters.status) conditions.push(eq(schema.openPosition.status, filters.status));
     if (filters.teamId) conditions.push(eq(schema.openPosition.teamId, filters.teamId));
     if (filters.clientId) conditions.push(eq(schema.openPosition.clientId, filters.clientId));
+    // null/undefined = unrestricted (org admin); an array limits to those teams.
+    if (Array.isArray(filters.teamIds)) {
+      if (filters.teamIds.length === 0) return [];
+      conditions.push(inArray(schema.openPosition.teamId, filters.teamIds));
+    }
 
     const rows = await db.select().from(schema.openPosition).where(and(...conditions));
     return this._enrichOpenPositions(rows);
@@ -33,21 +38,31 @@ class OpenPositionsService {
         ? db.select({ id: schema.client.id, companyName: schema.client.companyName })
             .from(schema.client).where(inArray(schema.client.id, clientIds))
         : [],
-      db.select({ id: schema.candidateTracker.id, openPositionId: schema.candidateTracker.openPositionId })
+      // Counted in SQL: one row per (position, status) instead of one per tracker.
+      db.select({
+        openPositionId: schema.candidateTracker.openPositionId,
+        status: schema.candidateTracker.status,
+        n: sql`count(*)::int`.as('n'),
+      })
         .from(schema.candidateTracker)
-        .where(and(inArray(schema.candidateTracker.openPositionId, positionIds), eq(schema.candidateTracker.status, 'placed'))),
+        .where(inArray(schema.candidateTracker.openPositionId, positionIds))
+        .groupBy(schema.candidateTracker.openPositionId, schema.candidateTracker.status),
     ]);
 
     const clientById = new Map(clientRows.map((c) => [c.id, c]));
     const filledCountByPosition = new Map();
+    const activeCountByPosition = new Map();
     for (const row of placedRows) {
-      filledCountByPosition.set(row.openPositionId, (filledCountByPosition.get(row.openPositionId) || 0) + 1);
+      if (row.status === 'placed') filledCountByPosition.set(row.openPositionId, (filledCountByPosition.get(row.openPositionId) || 0) + row.n);
+      else if (row.status === 'active' || row.status === 'on_hold') activeCountByPosition.set(row.openPositionId, (activeCountByPosition.get(row.openPositionId) || 0) + row.n);
     }
 
     return rows.map((position) => ({
       ...position,
       clientName: position.clientId ? clientById.get(position.clientId)?.companyName || null : null,
       filledCount: filledCountByPosition.get(position.id) || 0,
+      // Candidates currently being worked for this position (active or on hold).
+      activeCount: activeCountByPosition.get(position.id) || 0,
     }));
   }
 

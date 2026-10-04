@@ -8,6 +8,20 @@
       "when": 1790478296413,
       "tag": "0000_bouncy_war_machine",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790937330908,
+      "tag": "0001_hr_workbench_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791027319761,
+      "tag": "0002_daily_tracker",
+      "breakpoints": true
     }
   ]
 }

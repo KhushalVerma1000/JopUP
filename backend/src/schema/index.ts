@@ -220,3 +220,11 @@ export {
   emailRecipientStatusEnum,
   emailAttachmentSourceEnum,
 } from "./16-client-communications";
+
+// ── 19 · Daily tracker ────────────────────────
+export {
+  dailyTrackerTriggerEnum,
+  dailyTrackerRunStatusEnum,
+  dailyTrackerSchedule,
+  dailyTrackerRun,
+} from "./19-daily-tracker";

@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { forwardRef, useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 export function PageHeader({ title, subtitle, action }) {
@@ -106,34 +107,148 @@ export function Chips({ items, value, onChange, className }) {
   );
 }
 
-/** Bottom sheet on phones, centred dialog on md+. Esc / backdrop closes. */
-export function Sheet({ open, onClose, title, children }) {
+// Open sheets, topmost last. Lets nested sheets (a picker opened from a form)
+// behave: only the top one answers Escape / Tab, and the page's scroll lock is
+// taken once and released once, whatever order they close in.
+const openSheets = [];
+let savedBodyOverflow = '';
+
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+/**
+ * Bottom sheet on phones, centred dialog on md+.
+ * Keyboard: Esc closes (top sheet only), Tab is trapped inside, and focus goes
+ * back to whatever opened it. Focus lands on the first `autoFocus` field if
+ * there is one, otherwise on the dialog itself.
+ */
+export function Sheet({ open, onClose, title, description, children }) {
+  const panelRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+  const uid = useId();
+
+  // Remember what had focus at the moment the sheet opens. This has to happen
+  // during render: by the time an effect runs, an `autoFocus` field inside the
+  // sheet has already taken focus, and we'd "restore" focus to that field.
+  const openerRef = useRef(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current) openerRef.current = document.activeElement;
+  wasOpen.current = open;
+
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    const opener = openerRef.current;
+    if (openSheets.length === 0) {
+      savedBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    openSheets.push(uid);
+
+    const panel = panelRef.current;
+    if (panel && !panel.contains(document.activeElement)) panel.focus();
+
+    const onKey = (e) => {
+      if (openSheets[openSheets.length - 1] !== uid) return;
+      if (e.key === 'Escape') { e.stopPropagation(); onCloseRef.current(); return; }
+      if (e.key !== 'Tab' || !panel) return;
+      const items = [...panel.querySelectorAll(FOCUSABLE)];
+      if (items.length === 0) { e.preventDefault(); panel.focus(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === panel)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
+      const i = openSheets.indexOf(uid);
+      if (i >= 0) openSheets.splice(i, 1);
+      if (openSheets.length === 0) document.body.style.overflow = savedBodyOverflow;
+      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
     };
-  }, [open, onClose]);
+  }, [open, uid]);
 
   if (!open) return null;
+  const titleId = `${uid}-title`;
+  const descId = `${uid}-desc`;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="pb-safe relative max-h-[90svh] w-full overflow-y-auto rounded-t-2xl bg-background p-5 shadow-xl md:max-w-md md:rounded-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{title}</h2>
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+      <button type="button" tabIndex={-1} aria-hidden="true" className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descId : undefined}
+        tabIndex={-1}
+        className="pb-safe relative max-h-[90svh] w-full overflow-y-auto rounded-t-2xl bg-background p-5 shadow-xl outline-none md:max-w-md md:rounded-2xl"
+      >
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 id={titleId} className="min-w-0 text-lg font-semibold">{title}</h2>
           <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X /></Button>
         </div>
+        {description && <p id={descId} className="-mt-2 mb-4 text-sm text-muted-foreground">{description}</p>}
         {children}
       </div>
     </div>
   );
 }
+
+/** Label + control + optional hint, so every form field is spaced and wired the same way. */
+export function Field({ label, htmlFor, hint, className, children }) {
+  return (
+    <div className={cn('grid gap-2', className)}>
+      <Label htmlFor={htmlFor}>{label}</Label>
+      {children}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+const NOTICE_TONES = { info: 'bg-muted', good: TONES.good, warn: TONES.warn, bad: TONES.bad };
+
+/**
+ * Inline message. One component for what used to be hand-rolled amber and
+ * emerald banners: `warn`/`bad` are announced immediately (role=alert),
+ * `info`/`good` politely (role=status). Put buttons in `actions`.
+ */
+export function Notice({ tone = 'info', title, children, actions, className }) {
+  const urgent = tone === 'warn' || tone === 'bad';
+  return (
+    <div role={urgent ? 'alert' : 'status'} className={cn('rounded-md border px-3 py-2.5 text-sm', NOTICE_TONES[tone], className)}>
+      {title && <p className="font-medium">{title}</p>}
+      {children && <div className={cn(title && 'mt-1', 'text-muted-foreground')}>{children}</div>}
+      {actions && <div className="mt-3 flex flex-wrap gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/** The one floating primary action a screen may have (sits above the mobile tab bar). */
+export function Fab({ icon: Icon, children, className, ...props }) {
+  return (
+    <button
+      type="button"
+      className={cn('pb-safe fixed bottom-20 right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-primary px-5 font-medium text-primary-foreground shadow-lg active:scale-95 md:bottom-8 md:right-8', className)}
+      {...props}
+    >
+      {Icon && <Icon className="size-5" aria-hidden />}
+      {children}
+    </button>
+  );
+}
+
+/**
+ * 44px round icon action (call, copy, mail…). Renders a link when given
+ * `href`, otherwise a button. Always pass `aria-label` — there is no text.
+ */
+export const RoundAction = forwardRef(function RoundAction({ tone = 'muted', className, children, ...props }, ref) {
+  const cls = cn('flex size-11 shrink-0 items-center justify-center rounded-full active:scale-95', tone === 'accent' ? 'bg-accent text-accent-foreground' : 'bg-muted', className);
+  return props.href
+    ? <a ref={ref} className={cls} {...props}>{children}</a>
+    : <button ref={ref} type="button" className={cls} {...props}>{children}</button>;
+});
 
 /** Deterministic pill colours so a status looks the same everywhere. */
 const PILL = {
@@ -166,10 +281,10 @@ export function Avatar({ name, className }) {
 }
 
 /** Simple proportional bar, used for funnels and limits. */
-export function Bar({ value, max, className, tone = 'primary' }) {
+export function Bar({ value, max, className, tone = 'primary', label }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
-    <div className={cn('h-2 w-full overflow-hidden rounded-full bg-muted', className)} role="progressbar" aria-valuenow={value} aria-valuemax={max}>
+    <div className={cn('h-2 w-full overflow-hidden rounded-full bg-muted', className)} role="progressbar" aria-label={label} aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
       <div className={cn('h-full rounded-full', tone === 'warn' ? 'bg-amber-500' : 'bg-primary')} style={{ width: `${pct}%` }} />
     </div>
   );

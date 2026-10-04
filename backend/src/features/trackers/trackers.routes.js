@@ -13,6 +13,7 @@ router.get('/summary', requirePermission('trackers', 'read'), controller.getSumm
 router.get('/:id', requirePermission('trackers', 'read'), validate(schema.trackerParamsSchema), controller.getById.bind(controller));
 router.get('/:id/history', requirePermission('trackers', 'read'), validate(schema.trackerParamsSchema), controller.getHistory.bind(controller));
 router.post('/', requirePermission('trackers', 'write'), validate(schema.createTrackerSchema), controller.create.bind(controller));
+router.post('/tag', requirePermission('trackers', 'write'), validate(schema.tagCandidatesSchema), controller.tag.bind(controller));
 
 // Reuses the existing workflow_actions permission key and its specific
 // action names (advance/block/hold/approve) — requirePermission does an
@@ -20,6 +21,7 @@ router.post('/', requirePermission('trackers', 'write'), validate(schema.createT
 // use the same action keys, not a generic 'write' (which workflow_actions
 // never grants — every role's list is exactly ["advance","block","hold"]
 // or with "approve" added for org_admin/manager).
+router.patch('/:id', requirePermission('trackers', 'write'), validate(schema.updateTrackerSchema), controller.update.bind(controller));
 router.post('/:id/advance', requirePermission('workflow_actions', 'advance'), validate(schema.advanceStageSchema), controller.advanceStage.bind(controller));
 router.post('/:id/block', requirePermission('workflow_actions', 'block'), validate(schema.blockTrackerSchema), controller.block.bind(controller));
 router.post('/:id/hold', requirePermission('workflow_actions', 'hold'), validate(schema.trackerParamsSchema), controller.hold.bind(controller));

@@ -19,6 +19,7 @@ const jobPostingsRoutes = require('./features/job-postings/job-postings.routes')
 const openPositionsRoutes = require('./features/open-positions/open-positions.routes');
 const applicationsRoutes = require('./features/applications/applications.routes');
 const trackersRoutes = require('./features/trackers/trackers.routes');
+const dailyTrackersRoutes = require('./features/daily-trackers/daily-trackers.routes');
 const performanceRoutes = require('./features/performance/performance.routes');
 const creditsRoutes = require('./features/credits/credits.routes');
 const platformRoutes = require('./features/platform/platform.routes');
@@ -58,6 +59,7 @@ app.use('/api/v1/job-postings', jobPostingsRoutes);
 app.use('/api/v1/open-positions', openPositionsRoutes);
 app.use('/api/v1/applications', applicationsRoutes);
 app.use('/api/v1/trackers', trackersRoutes);
+app.use('/api/v1/daily-trackers', dailyTrackersRoutes);
 app.use('/api/v1/performance', performanceRoutes);
 app.use('/api/v1/credits', creditsRoutes);
 app.use('/api/v1/portal', portalRoutes);

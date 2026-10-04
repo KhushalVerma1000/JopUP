@@ -26,6 +26,8 @@ function resolveProviderName() {
 /**
  * @param {object} msg
  * @param {string|string[]} msg.to
+ * @param {string[]} [msg.cc]
+ * @param {string[]} [msg.bcc]
  * @param {string} msg.subject
  * @param {string} msg.html
  * @param {string} [msg.text]     plain-text alternative (generated from html if omitted)
@@ -34,7 +36,7 @@ function resolveProviderName() {
  * @returns {Promise<{ provider: string, id: string|null }>}
  * @throws if the provider rejects the message — callers decide whether that is fatal
  */
-async function sendEmail({ to, subject, html, text, from, replyTo }) {
+async function sendEmail({ to, cc, bcc, subject, html, text, from, replyTo }) {
   const name = resolveProviderName();
   const provider = providers[name];
   if (!provider) throw new Error(`Unknown EMAIL_PROVIDER '${name}'`);
@@ -42,6 +44,8 @@ async function sendEmail({ to, subject, html, text, from, replyTo }) {
   const payload = {
     from: from || process.env.EMAIL_FROM || 'JopUP <onboarding@resend.dev>',
     to: Array.isArray(to) ? to : [to],
+    ...(cc && cc.length ? { cc } : {}),
+    ...(bcc && bcc.length ? { bcc } : {}),
     subject,
     html,
     text: text || htmlToText(html),

@@ -47,6 +47,7 @@ import {
   jsonb,
   pgEnum,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pkUuid, orgId, timestamps, createdAt } from "./_helpers";
@@ -124,6 +125,10 @@ export const candidateTracker = pgTable("candidate_tracker", {
   index("ctr_candidate_idx").on(t.candidateId),
   index("ctr_open_position_idx").on(t.openPositionId),
   index("ctr_status_idx").on(t.status),
+  // One *live* tag per candidate per position. Finished rows (rejected,
+  // withdrawn, placed) are exempt so a candidate can be re-tagged later.
+  uniqueIndex("ctr_one_live_tag_uq").on(t.candidateId, t.openPositionId)
+    .where(sql`${t.openPositionId} is not null and ${t.status} in ('active', 'on_hold')`),
 ]);
 
 /**
