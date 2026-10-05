@@ -43,7 +43,7 @@ export function JobPostingsSection({ jobs: jobsFetch, positions, open, onToggle 
 
   return (
     <section className="mt-8">
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center justify-between rounded-lg border bg-card px-4 py-3 text-left">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center justify-between rounded-xl border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-accent/40">
         <span>
           <span className="block text-sm font-semibold">Job portal postings</span>
           <span className="block text-xs text-muted-foreground">{jobs.length} posting{jobs.length === 1 ? '' : 's'} advertising your positions</span>
@@ -56,7 +56,7 @@ export function JobPostingsSection({ jobs: jobsFetch, positions, open, onToggle 
           <ErrorNote>{actionError}</ErrorNote>
           {loading && !data && <Loading />}
           {data && jobs.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No postings yet. Use “Post job” on a position to advertise it.</p>}
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {jobs.map((j) => (
               <Card key={j.id} className="gap-3 p-4">
                 <div className="flex items-start justify-between gap-2">

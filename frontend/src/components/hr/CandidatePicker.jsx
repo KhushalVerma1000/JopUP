@@ -42,7 +42,7 @@ export function CandidatePicker({ open, onClose, title, excludeIds = [], busy, e
           const on = picked.includes(c.id);
           return (
             <li key={c.id}>
-              <button type="button" role="checkbox" aria-checked={on} disabled={already} onClick={() => toggle(c.id)} className={cn('flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left disabled:opacity-50', on && 'border-primary bg-accent/50')}>
+              <button type="button" role="checkbox" aria-checked={on} disabled={already} onClick={() => toggle(c.id)} className={cn('flex min-h-12 w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent/60 disabled:opacity-50', on && 'border-primary bg-accent/50')}>
                 <span className={cn('flex size-5 shrink-0 items-center justify-center rounded border', on && 'border-primary bg-primary text-primary-foreground')}>{on && <Check className="size-3.5" aria-hidden />}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{fullName(c)}</span>

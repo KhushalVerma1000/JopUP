@@ -32,7 +32,7 @@ export function PositionPicker({ open, onClose, positions, selectedId, onSelect,
       <ul className="flex flex-col gap-2">
         {allowClear && (
           <li>
-            <button type="button" aria-pressed={!selectedId} onClick={() => onSelect(null)} className={cn('flex min-h-12 w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-left text-sm text-muted-foreground active:bg-accent', !selectedId && 'border-primary')}>
+            <button type="button" aria-pressed={!selectedId} onClick={() => onSelect(null)} className={cn('flex min-h-12 w-full items-center justify-between rounded-md border border-dashed px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/60 active:bg-accent', !selectedId && 'border-primary')}>
               {clearLabel}{!selectedId && <Check className="size-4 text-primary" aria-hidden />}
             </button>
           </li>
@@ -41,7 +41,7 @@ export function PositionPicker({ open, onClose, positions, selectedId, onSelect,
           const selected = p.id === selectedId;
           return (
             <li key={p.id}>
-              <button type="button" aria-pressed={selected} onClick={() => onSelect(p.id)} className={cn('flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left active:bg-accent', selected && 'border-primary bg-accent/50')}>
+              <button type="button" aria-pressed={selected} onClick={() => onSelect(p.id)} className={cn('flex min-h-12 w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent/60 active:bg-accent', selected && 'border-primary bg-accent/50')}>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{p.designation}</span>
                   <span className="block truncate text-xs text-muted-foreground">{[p.clientName || 'Internal', p.location].filter(Boolean).join(' · ')}</span>

@@ -13,6 +13,7 @@ import { PositionPicker } from '../components/hr/PositionPicker';
 import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -42,7 +43,7 @@ export function HrPage() {
   function viewPipeline(positionId) { setPositionFilter(positionId); setScopeKey('team'); setTab('pipeline'); }
 
   return (
-    <AppLayout>
+    <AppLayout wide>
       <PageHeader title="HR workbench" subtitle={`Hi ${auth.user.firstName} — here's what needs you today.`} />
       <Chips items={TABS} value={tab} onChange={setTab} className="mb-4" />
       {tab === 'pipeline' && <PipelineTab scope={scope} scopeKey={scopeKey} setScopeKey={setScopeKey} positionFilter={positionFilter} setPositionFilter={setPositionFilter} />}
@@ -174,10 +175,10 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Scope">
+        <div className="inline-flex rounded-lg border bg-muted p-1" role="tablist" aria-label="Scope">
           {[['mine', 'My candidates'], ['team', 'Whole team']].map(([k, label]) => (
             <button key={k} type="button" role="tab" aria-selected={scopeKey === k} onClick={() => { setScopeKey(k); setFilter('all'); }}
-              className={`h-9 rounded-md px-3 text-sm font-medium ${scopeKey === k ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>{label}</button>
+              className={`h-9 rounded-md px-3 text-sm font-medium transition-colors ${scopeKey === k ? 'border bg-background shadow-sm' : 'border border-transparent text-muted-foreground hover:text-foreground'}`}>{label}</button>
           ))}
         </div>
         <NativeSelect aria-label="Filter by position" className="min-w-0 flex-1 md:max-w-xs" value={positionFilter} onChange={(e) => { setPositionFilter(e.target.value); setFilter('all'); }}>
@@ -199,7 +200,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
         />
       )}
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {visible.map((t) => {
           const next = nextStageOf(t);
           const busy = busyId === t.id;
@@ -222,7 +223,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
               {/* Position: tap to tag / change */}
               {canWrite && t.status !== 'rejected' && t.status !== 'placed' ? (
                 <button type="button" disabled={busy} onClick={() => setTagging(t)}
-                  className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-sm active:bg-accent ${t.openPositionId ? 'bg-card' : 'border-dashed text-muted-foreground'}`}>
+                  className={`flex min-h-10 items-center gap-2 rounded-md border px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent active:bg-accent ${t.openPositionId ? 'bg-card' : 'border-dashed text-muted-foreground'}`}>
                   {t.openPositionId ? <Briefcase className="size-4 shrink-0 text-muted-foreground" /> : <Tag className="size-4 shrink-0" />}
                   <span className="min-w-0 flex-1 truncate">{t.openPositionId ? <>{t.openPositionDesignation}{t.clientName ? <span className="text-muted-foreground"> · {t.clientName}</span> : null}</> : 'Tag to position'}</span>
                   {t.openPositionId && <span className="shrink-0 text-xs text-muted-foreground">Change</span>}
@@ -233,7 +234,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
 
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {t.status === 'active' && t.currentStage && <StatusPill status="trialing">{t.currentStage.name}</StatusPill>}
-                {t.status === 'active' && t.currentStageNote && <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-foreground">{t.currentStageNote}</span>}
+                {t.status === 'active' && t.currentStageNote && <span className="inline-flex items-center rounded-full border bg-card px-2 py-0.5 text-xs font-medium text-foreground">{t.currentStageNote}</span>}
                 {t.status !== 'active' && <StatusPill status={t.status} />}
                 {t.currentStageEnteredAt && t.status === 'active' && <span>{relativeTime(t.currentStageEnteredAt).replace(' ago', '')} in stage</span>}
                 {t.interviewDate && t.status === 'active' && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />{shortDate(t.interviewDate)}</span>}
@@ -377,7 +378,7 @@ function QuickAdd({ open, onClose, teams, positions, defaultCountry, meId, onAdd
             <Field label="Team" htmlFor="qa-team"><NativeSelect id="qa-team" value={form.teamId} onChange={(e) => setForm((s) => ({ ...s, teamId: e.target.value, openPositionId: '' }))}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</NativeSelect></Field>
           )}
           <Field label="Position (optional)" htmlFor="qa-pos">
-            <button id="qa-pos" type="button" onClick={() => setPickerOpen(true)} className={`flex min-h-11 items-center gap-2 rounded-md border px-3 text-left text-sm ${chosen ? '' : 'border-dashed text-muted-foreground'}`}>
+            <button id="qa-pos" type="button" onClick={() => setPickerOpen(true)} className={`flex min-h-11 items-center gap-2 rounded-md border bg-background px-3 text-left text-sm transition-colors hover:bg-accent md:min-h-9 ${chosen ? '' : 'border-dashed text-muted-foreground'}`}>
               <Briefcase className="size-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{chosen ? `${chosen.designation}${chosen.clientName ? ` — ${chosen.clientName}` : ''}` : 'Tag to position'}</span>
             </button>
@@ -455,9 +456,9 @@ function CandidatesTab({ scope }) {
       {notice && <Notice tone="good" className="mb-4">{notice}</Notice>}
       {loading && !data && <Loading />}
       {data && list.length === 0 && <EmptyState title="No candidates found" />}
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {list.map((c) => (
-          <Card key={c.id} className="gap-2 p-4">
+          <Card key={c.id} className="gap-3 p-4">
             <div className="flex items-start gap-3">
               <Avatar name={fullName(c)} />
               <div className="min-w-0 flex-1">
@@ -468,7 +469,7 @@ function CandidatesTab({ scope }) {
               {c.email && <RoundAction href={`mailto:${c.email}`} aria-label={`Email ${fullName(c)}`}><Mail className="size-5" aria-hidden /></RoundAction>}
             </div>
             {(c.skills || []).length > 0 && (
-              <div className="flex flex-wrap gap-1">{c.skills.slice(0, 5).map((s) => <span key={s} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{s}</span>)}</div>
+              <div className="flex flex-wrap gap-1.5">{c.skills.slice(0, 5).map((s) => <Badge key={s} variant="secondary" className="border-border font-normal">{s}</Badge>)}</div>
             )}
             {canTag && <Button variant="outline" size="sm" className="self-start" onClick={() => { setNotice(null); setTagging(c); }}><Tag /> Tag to position</Button>}
           </Card>

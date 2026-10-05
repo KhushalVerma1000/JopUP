@@ -72,7 +72,7 @@ export function PositionsTab({ scope, onViewPipeline }) {
         />
       )}
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {visible.map((p) => {
           const busy = busyId === p.id;
           const full = p.status === 'open' && p.filledCount >= p.vacancies;

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 
 export function PageHeader({ title, subtitle, action }) {
   return (
-    <div className="mb-5 flex items-start justify-between gap-3">
+    <div className="mb-5 flex items-start justify-between gap-3 md:mb-6">
       <div className="min-w-0">
         <h1 className="truncate text-xl font-semibold tracking-tight md:text-2xl">{title}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
@@ -56,7 +56,7 @@ export function StatTile({ label, value, sub, tone = 'default', icon: Icon }) {
 
 export function EmptyState({ title, body, action }) {
   return (
-    <div className="rounded-xl border border-dashed bg-card/50 px-4 py-8 text-center">
+    <div className="rounded-xl border border-dashed bg-card/50 px-4 py-10 text-center">
       <p className="text-sm font-medium">{title}</p>
       {body && <p className="mx-auto mt-1 max-w-xs text-sm text-muted-foreground">{body}</p>}
       {action && <div className="mt-4">{action}</div>}
@@ -67,7 +67,7 @@ export function EmptyState({ title, body, action }) {
 export function ErrorNote({ children, onRetry }) {
   if (!children) return null;
   return (
-    <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+    <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
       <span>{children}</span>
       {onRetry && <button type="button" onClick={onRetry} className="shrink-0 font-medium underline underline-offset-4">Retry</button>}
     </div>
@@ -183,7 +183,7 @@ export function Sheet({ open, onClose, title, description, children }) {
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className="pb-safe relative max-h-[90svh] w-full overflow-y-auto rounded-t-2xl bg-background p-5 shadow-xl outline-none md:max-w-md md:rounded-2xl"
+        className="pb-safe relative max-h-[90svh] w-full overflow-y-auto rounded-t-2xl border bg-background p-5 shadow-xl outline-none md:max-w-md md:rounded-xl"
       >
         <div className="mb-4 flex items-center justify-between gap-2">
           <h2 id={titleId} className="min-w-0 text-lg font-semibold">{title}</h2>
@@ -217,7 +217,7 @@ const NOTICE_TONES = { info: 'bg-muted', good: TONES.good, warn: TONES.warn, bad
 export function Notice({ tone = 'info', title, children, actions, className }) {
   const urgent = tone === 'warn' || tone === 'bad';
   return (
-    <div role={urgent ? 'alert' : 'status'} className={cn('rounded-md border px-3 py-2.5 text-sm', NOTICE_TONES[tone], className)}>
+    <div role={urgent ? 'alert' : 'status'} className={cn('rounded-lg border px-3 py-2.5 text-sm', NOTICE_TONES[tone], className)}>
       {title && <p className="font-medium">{title}</p>}
       {children && <div className={cn(title && 'mt-1', 'text-muted-foreground')}>{children}</div>}
       {actions && <div className="mt-3 flex flex-wrap gap-2">{actions}</div>}
@@ -244,7 +244,7 @@ export function Fab({ icon: Icon, children, className, ...props }) {
  * `href`, otherwise a button. Always pass `aria-label` — there is no text.
  */
 export const RoundAction = forwardRef(function RoundAction({ tone = 'muted', className, children, ...props }, ref) {
-  const cls = cn('flex size-11 shrink-0 items-center justify-center rounded-full active:scale-95', tone === 'accent' ? 'bg-accent text-accent-foreground' : 'bg-muted', className);
+  const cls = cn('flex size-11 shrink-0 items-center justify-center rounded-full border active:scale-95 md:size-9 md:transition-colors', tone === 'accent' ? 'border-transparent bg-accent text-accent-foreground md:hover:bg-accent/70' : 'bg-card text-foreground md:hover:bg-accent', className);
   return props.href
     ? <a ref={ref} className={cls} {...props}>{children}</a>
     : <button ref={ref} type="button" className={cls} {...props}>{children}</button>;
@@ -284,7 +284,7 @@ export function Avatar({ name, className }) {
 export function Bar({ value, max, className, tone = 'primary', label }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
-    <div className={cn('h-2 w-full overflow-hidden rounded-full bg-muted', className)} role="progressbar" aria-label={label} aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
+    <div className={cn('h-2 w-full overflow-hidden rounded-full border bg-muted', className)} role="progressbar" aria-label={label} aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
       <div className={cn('h-full rounded-full', tone === 'warn' ? 'bg-amber-500' : 'bg-primary')} style={{ width: `${pct}%` }} />
     </div>
   );
