@@ -1,6 +1,6 @@
 import { NavLink, Link } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList,
+  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { primaryRoleLabel } from '../lib/roles';
@@ -21,6 +21,8 @@ const NAV_ITEMS = [
   { to: '/manager', label: 'Team', icon: ClipboardList, visibleTo: (a) => !a.isPlatform && (a.isManager || a.isOrgAdmin) },
   // HR / pipeline
   { to: '/hr', label: 'Pipeline', sideLabel: 'HR workbench', icon: Briefcase, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
+  { to: '/performance', label: 'Performance', icon: Target, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
   { to: '/clients', label: 'Clients', icon: Building2, visibleTo: (a) => !a.isPlatform },
   { to: '/employees', label: 'People', sideLabel: 'Employees', icon: Users, visibleTo: (a) => !a.isPlatform && (a.isManager || a.isOrgAdmin) },
   { to: '/managerial', label: 'Settings', icon: Settings, visibleTo: (a) => !a.isPlatform && a.isOrgAdmin },
@@ -89,8 +91,17 @@ export function AppLayout({ children, wide = false }) {
         <header className="pt-safe sticky top-0 z-30 border-b bg-background/95 backdrop-blur md:hidden">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4">
             <Link to={auth.homePath} className="text-lg font-bold tracking-tight text-primary">JopUP</Link>
-            <div className="flex items-center gap-3">
-              <Avatar name={name} className="size-9" />
+            <div className="flex items-center gap-1">
+              {/* Screens that don't fit the 5-slot tab bar stay one tap away on phones. */}
+              {items.filter((i) => i.tabBar === false).map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink key={item.to} to={item.to} aria-label={item.label} className={({ isActive }) => cn('flex size-10 items-center justify-center rounded-md hover:bg-accent', isActive ? 'text-primary' : 'text-muted-foreground')}>
+                    <Icon className="size-5" aria-hidden />
+                  </NavLink>
+                );
+              })}
+              <Avatar name={name} className="ml-1 size-9" />
               <button
                 type="button"
                 onClick={logout}
@@ -109,7 +120,7 @@ export function AppLayout({ children, wide = false }) {
       {/* Phone tab bar — thumb reach, safe-area aware. Hidden on md+ where the sidebar shows. */}
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur md:hidden" aria-label="Primary">
         <ul className="mx-auto flex max-w-lg">
-          {items.slice(0, 5).map((item) => {
+          {items.filter((i) => i.tabBar !== false).slice(0, 5).map((item) => {
             const Icon = item.icon;
             return (
               <li key={item.to} className="flex-1">

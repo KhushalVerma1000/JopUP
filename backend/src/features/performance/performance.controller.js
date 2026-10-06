@@ -1,110 +1,56 @@
-const perfService = require('./performance.service');
+const perf = require('./performance.service');
+const { canActOnTeam } = require('../../utils/teamScope');
+const { ForbiddenError } = require('../../utils/errors');
+
+// A write that names a team must be to a team where the caller holds that permission.
+function requireTeamWrite(req, teamId, entity) {
+  if (!canActOnTeam(req.user, teamId, entity, 'write')) throw new ForbiddenError('You don\'t have access to that team');
+}
+
+const ok = (res, data, status = 200) => res.status(status).json({ status: 'success', data });
 
 class PerformanceController {
-  // --- KPIs ---
-  async listKpis(req, res) {
-    const orgId = req.tenantId;
-    const teamId = req.query.teamId;
-    const kpis = await perfService.getKpiDefinitions(orgId, teamId);
-    res.json({ status: 'success', data: { kpis } });
-  }
-
+  // KPIs
+  async listKpis(req, res) { ok(res, { kpis: await perf.listKpis(req.tenantId, req.user, req.query) }); }
   async createKpi(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const kpi = await perfService.createKpiDefinition(orgId, req.body, userId);
-    res.status(201).json({ status: 'success', data: { kpi } });
+    requireTeamWrite(req, req.body.teamId, 'kpi');
+    ok(res, { kpi: await perf.createKpiDefinition(req.tenantId, req.body, req.user.userId) }, 201);
   }
-
-  async updateKpi(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const { id } = req.params;
-    const kpi = await perfService.updateKpiDefinition(orgId, id, req.body, userId);
-    res.json({ status: 'success', data: { kpi } });
-  }
-
-  async listKpiEntries(req, res) {
-    const { id } = req.params; // kpiId
-    const teamId = req.query.teamId;
-    const entries = await perfService.getKpiEntries(id, teamId);
-    res.json({ status: 'success', data: { entries } });
-  }
-
+  async updateKpi(req, res) { ok(res, { kpi: await perf.updateKpiDefinition(req.tenantId, req.user, req.params.id, req.body) }); }
+  async listKpiEntries(req, res) { ok(res, { entries: await perf.getKpiEntries(req.tenantId, req.user, req.params.id, req.query) }); }
   async createKpiEntry(req, res) {
-    const userId = req.user?.userId;
-    const entry = await perfService.createKpiEntry(req.body, userId);
-    res.status(201).json({ status: 'success', data: { entry } });
+    const { entry, replaced } = await perf.recordKpiEntry(req.tenantId, req.user, req.body);
+    ok(res, { entry, replaced }, replaced ? 200 : 201);
   }
 
-  // --- Reviews ---
-  async listReviews(req, res) {
-    const orgId = req.tenantId;
-    const teamId = req.query.teamId;
-    const reviews = await perfService.getReviews(orgId, teamId);
-    res.json({ status: 'success', data: { reviews } });
-  }
-
+  // Reviews
+  async listReviews(req, res) { ok(res, { reviews: await perf.getReviews(req.tenantId, req.user, req.query) }); }
   async createReview(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const review = await perfService.createReview(orgId, req.body, userId);
-    res.status(201).json({ status: 'success', data: { review } });
+    requireTeamWrite(req, req.body.teamId, 'performance_reviews');
+    ok(res, { review: await perf.createReview(req.tenantId, req.user, req.body) }, 201);
   }
+  async updateReview(req, res) { ok(res, { review: await perf.updateReview(req.tenantId, req.user, req.params.id, req.body) }); }
+  async acknowledgeReview(req, res) { ok(res, { review: await perf.acknowledgeReview(req.tenantId, req.user, req.params.id) }); }
 
-  async updateReview(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const { id } = req.params;
-    const review = await perfService.updateReview(orgId, id, req.body, userId);
-    res.json({ status: 'success', data: { review } });
-  }
-
-  // --- Goals ---
-  async listGoals(req, res) {
-    const orgId = req.tenantId;
-    const teamId = req.query.teamId;
-    const goals = await perfService.getGoals(orgId, teamId);
-    res.json({ status: 'success', data: { goals } });
-  }
-
+  // Goals
+  async listGoals(req, res) { ok(res, { goals: await perf.getGoals(req.tenantId, req.user, req.query) }); }
   async createGoal(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const goal = await perfService.createGoal(orgId, req.body, userId);
-    res.status(201).json({ status: 'success', data: { goal } });
+    requireTeamWrite(req, req.body.teamId, 'goals');
+    ok(res, { goal: await perf.createGoal(req.tenantId, req.user, req.body) }, 201);
   }
+  async updateGoal(req, res) { ok(res, { goal: await perf.updateGoal(req.tenantId, req.user, req.params.id, req.body) }); }
+  async updateGoalProgress(req, res) { ok(res, { goal: await perf.updateGoalProgress(req.tenantId, req.user, req.params.id, req.body) }); }
 
-  async updateGoal(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const { id } = req.params;
-    const goal = await perfService.updateGoal(orgId, id, req.body, userId);
-    res.json({ status: 'success', data: { goal } });
-  }
-
-  // --- Strategy ---
-  async listStrategies(req, res) {
-    const orgId = req.tenantId;
-    const teamId = req.query.teamId;
-    const strategies = await perfService.getStrategies(orgId, teamId);
-    res.json({ status: 'success', data: { strategies } });
-  }
-
+  // Strategy
+  async listStrategies(req, res) { ok(res, { strategies: await perf.getStrategies(req.tenantId, req.user, req.query) }); }
   async createStrategy(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const strategy = await perfService.createStrategy(orgId, req.body, userId);
-    res.status(201).json({ status: 'success', data: { strategy } });
+    requireTeamWrite(req, req.body.teamId, 'strategy');
+    ok(res, { strategy: await perf.createStrategy(req.tenantId, req.user, req.body) }, 201);
   }
+  async updateStrategy(req, res) { ok(res, { strategy: await perf.updateStrategy(req.tenantId, req.user, req.params.id, req.body) }); }
 
-  async updateStrategy(req, res) {
-    const orgId = req.tenantId;
-    const userId = req.user?.userId;
-    const { id } = req.params;
-    const strategy = await perfService.updateStrategy(orgId, id, req.body, userId);
-    res.json({ status: 'success', data: { strategy } });
-  }
+  // Roll-up
+  async overview(req, res) { ok(res, await perf.getOverview(req.tenantId, req.user)); }
 }
 
 module.exports = new PerformanceController();

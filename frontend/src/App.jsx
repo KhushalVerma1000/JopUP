@@ -11,6 +11,8 @@ import { ClientsPage } from './pages/ClientsPage';
 import { ManagerialPage } from './pages/ManagerialPage';
 import { ManagerPage } from './pages/ManagerPage';
 import { HrPage } from './pages/HrPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
+import { PerformancePage } from './pages/PerformancePage';
 import { PlatformOverview } from './pages/platform/PlatformOverview';
 import { PlatformOrganizations } from './pages/platform/PlatformOrganizations';
 import { PlatformOrgDetail } from './pages/platform/PlatformOrgDetail';
@@ -20,6 +22,7 @@ import { PlatformTeam } from './pages/platform/PlatformTeam';
 const tenantStaff = (a) => !a.isPlatform;
 const managerArea = (a) => !a.isPlatform && (a.isManager || a.isOrgAdmin);
 const pipelineArea = (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin);
+const performanceArea = (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin);
 const orgAdminOnly = (a) => !a.isPlatform && a.isOrgAdmin;
 const platformOnly = (a) => a.isPlatform;
 const platformOwnerOnly = (a) => a.isPlatformOwner;
@@ -58,6 +61,8 @@ export default function App() {
           <Route path="/dashboard" element={guard(<DashboardPage />, orgAdminOnly)} />
           <Route path="/manager" element={guard(<ManagerPage />, managerArea)} />
           <Route path="/hr" element={guard(<HrPage />, pipelineArea)} />
+          <Route path="/analytics" element={guard(<AnalyticsPage />, pipelineArea)} />
+          <Route path="/performance" element={guard(<PerformancePage />, performanceArea)} />
           <Route path="/clients" element={guard(<ClientsPage />, tenantStaff)} />
           <Route path="/employees" element={guard(<EmployeesPage />, managerArea)} />
           <Route path="/managerial" element={guard(<ManagerialPage />, managerArea)} />

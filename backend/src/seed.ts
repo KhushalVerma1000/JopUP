@@ -81,6 +81,10 @@ const ROLES = [
       trackers: ["read", "write"],
       daily_trackers: ["read", "write", "send"],
       kpi: ["read", "write"],
+      // org_admin could open the KPI screens but got 403 on goals/reviews —
+      // the Performance page needs all three, so grant them here too.
+      performance_reviews: ["read", "write"],
+      goals: ["read", "write"],
       strategy: ["read", "write"],
       audit_log: ["read"],
       credit_account: ["read"],

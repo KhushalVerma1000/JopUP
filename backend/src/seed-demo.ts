@@ -297,6 +297,13 @@ async function main() {
             interviewDate: stageIdx === 3 ? daysAhead(2) : null, lineupDate: stageIdx === 2 ? daysAhead(1) : null,
             createdAt: daysAgo(18 - c * 2),
           }).returning();
+          // History for the stages already passed, so the funnel reflects real progress.
+          for (let i = 0; i < stageIdx; i++) {
+            await db.insert(schema.candidateTrackerStageLog).values({
+              trackerId: tr.id, stageId: flow.stages[i].id, movedBy: hr.id, status: "advanced",
+              enteredAt: daysAgo(6 - c + (stageIdx - i) * 2), exitedAt: daysAgo(6 - c + (stageIdx - i) * 2 - 2),
+            });
+          }
           await db.insert(schema.candidateTrackerStageLog).values({
             trackerId: tr.id, stageId: flow.stages[stageIdx].id, movedBy: hr.id,
             status: status === "on_hold" ? "held" : "active", enteredAt: daysAgo(6 - c),
@@ -305,8 +312,84 @@ async function main() {
           });
         }
       }
+      // ── Closed outcomes: wins and a loss per team, with full stage history,
+      //    so analytics has a real funnel, time-to-place and win rate to show.
+      const outcomes = ["placed", "placed", "rejected"] as const;
+      for (let k = 0; k < outcomes.length; k++) {
+        const outcome = outcomes[k];
+        const hr = s.hrs[k % s.hrs.length];
+        const [first, last] = NAMES[n % NAMES.length];
+        const [cand] = await db.insert(schema.candidate).values({
+          organisationId: org.id, ownerTeamId: s.team.id, createdBy: hr.id, firstName: first, lastName: last,
+          email: `${first}.${last}${n}@mail.example`.toLowerCase(), phone: `97${String(10000000 + n * 211).slice(0, 8)}`, phoneCountry: "IN",
+          location: ["Bengaluru", "Pune", "Mumbai", "Hyderabad"][n % 4], source: SOURCES[n % SOURCES.length],
+          skills: (ROLES_FOR[n % ROLES_FOR.length][3] as string[]), status: "active", createdAt: daysAgo(60),
+        }).returning();
+        n++;
+        const startedAgo = 45 - k * 8;
+        const [tr] = await db.insert(schema.candidateTracker).values({
+          organisationId: org.id, teamId: s.team.id, candidateId: cand.id, openPositionId: positions[k % 2].id,
+          workflowTemplateId: flow.templateId, assignedHr: hr.id, status: outcome, createdAt: daysAgo(startedAgo),
+        }).returning();
+        const lastIdx = outcome === "placed" ? flow.stages.length - 1 : 4; // rejected after the interview
+        for (let i = 0; i <= lastIdx; i++) {
+          const entered = daysAgo(startedAgo - i * 3);
+          const isLast = i === lastIdx;
+          await db.insert(schema.candidateTrackerStageLog).values({
+            trackerId: tr.id, stageId: flow.stages[i].id, movedBy: hr.id, enteredAt: entered,
+            status: !isLast ? "advanced" : outcome === "placed" ? "active" : "blocked",
+            blockReason: isLast && outcome === "rejected" ? "Not a fit for the client" : null,
+            // Joined stays "current"; a rejection closes its stage.
+            exitedAt: !isLast || outcome === "rejected" ? daysAgo(startedAgo - i * 3 - 2) : null,
+          });
+        }
+      }
+
+      // ── Performance: KPIs with a few months of readings, goals, reviews, strategy.
+      //    Only for plans that include the performance modules.
+      if (spec.plan !== "starter") {
+        const month = (back: number) => {
+          const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - back);
+          return { date: d.toISOString().slice(0, 10), label: d.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) };
+        };
+        const KPI_SPECS = [
+          { name: "Placements per month", unit: "count", target: 6, direction: "higher_better" as const, category: "Recruitment", series: [3, 4, 4, 5, 5, 6] },
+          { name: "Avg. days to place", unit: "days", target: 25, direction: "lower_better" as const, category: "Recruitment", series: [34, 31, 30, 29, 31, 27] },
+          { name: "Client satisfaction", unit: "%", target: 90, direction: "higher_better" as const, category: "Client delivery", series: [88, 86, 84, 85, 82, 80] },
+        ];
+        for (const ks of KPI_SPECS) {
+          const [kpi] = await db.insert(schema.kpiDefinition).values({
+            organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, name: ks.name, unit: ks.unit, category: ks.category,
+            frequency: "monthly", targetValue: ks.target, direction: ks.direction,
+          }).returning();
+          for (let i = 0; i < ks.series.length; i++) {
+            const m = month(ks.series.length - 1 - i);
+            await db.insert(schema.kpiEntry).values({ kpiId: kpi.id, teamId: s.team.id, recordedBy: s.manager.id, value: ks.series[i], periodLabel: m.label, periodDate: m.date });
+          }
+        }
+
+        const dueIn = (d: number) => daysAhead(d).toISOString().slice(0, 10);
+        await db.insert(schema.goal).values([
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[0].id, title: "Place 10 candidates this quarter", progressPct: 60, dueDate: dueIn(30) },
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[0].id, title: "Clear the screening backlog", progressPct: 40, dueDate: dueIn(-4) },
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, title: "Add 3 new client accounts", progressPct: 33, dueDate: dueIn(60) },
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[s.hrs.length - 1].id, title: "Complete onboarding checklist", progressPct: 100, status: "completed", completedAt: daysAgo(10), dueDate: dueIn(-12) },
+        ]);
+
+        await db.insert(schema.performanceReview).values([
+          { organisationId: org.id, teamId: s.team.id, reviewerId: s.manager.id, revieweeId: s.hrs[0].id, cycle: "Q2 2026", status: "submitted", submittedAt: daysAgo(14),
+            scores: { candidate_quality: 4, pipeline_speed: 3, client_feedback: 5 }, summary: "Strong candidate quality and great client feedback. Work on keeping candidates moving between stages.", managerNotes: "Ready for a larger client portfolio next quarter." },
+          { organisationId: org.id, teamId: s.team.id, reviewerId: s.manager.id, revieweeId: s.hrs[s.hrs.length - 1].id, cycle: "Q3 2026", status: "draft", scores: { candidate_quality: 3 }, managerNotes: "Draft: gather client feedback before finishing." },
+        ]);
+
+        await db.insert(schema.teamStrategy).values({
+          organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, title: "Grow placements", period: "Q4 2026", status: "active",
+          description: "Fill more positions, faster.",
+          objectives: [{ objective: "Double our placement rate", key_results: [{ kr: "Place 40 candidates", target: 40, current: 18 }, { kr: "Cut time-to-place to 20 days", target: 20, current: 27 }] }],
+        });
+      }
     }
-    console.log(`  ✓ ${spec.slug} (teams, staff, clients, positions, jobs, candidates, trackers)`);
+    console.log(`  ✓ ${spec.slug} (teams, staff, clients, positions, jobs, candidates, trackers, performance)`);
   }
 
   // ── Login sheet ────────────────────────────────────────────

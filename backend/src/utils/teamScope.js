@@ -21,4 +21,22 @@ function canSeeTeam(user, teamId) {
   return ids === null || ids.includes(teamId);
 }
 
-module.exports = { visibleTeamIds, canSeeTeam };
+/**
+ * Teams where the caller holds a role granting entity:action.
+ *   null   → every team in the org (an org-wide role grants it)
+ *   [ids]  → only those teams (possibly none)
+ * Unlike visibleTeamIds this looks at the permission, so a person who is a
+ * manager of team A and plain HR of team B can write in A but only read in B.
+ */
+function teamsWithPermission(user, entity, action) {
+  const granting = (user?.roles || []).filter((r) => r.permissions?.[entity]?.includes(action));
+  if (granting.some((r) => !r.teamId)) return null;
+  return [...new Set(granting.map((r) => r.teamId))];
+}
+
+function canActOnTeam(user, teamId, entity, action) {
+  const ids = teamsWithPermission(user, entity, action);
+  return ids === null || ids.includes(teamId);
+}
+
+module.exports = { visibleTeamIds, canSeeTeam, teamsWithPermission, canActOnTeam };
