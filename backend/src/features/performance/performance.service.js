@@ -4,6 +4,9 @@ const { NotFoundError, BadRequestError, ConflictError } = require('../../utils/e
 const { auditWrite } = require('../../utils/audit');
 const { visibleTeamIds, teamsWithPermission } = require('../../utils/teamScope');
 const math = require('./performance.math');
+const metrics = require('./metrics.service');
+const { getMetric } = require('./metrics.catalogue');
+const { localDate } = require('../../utils/zonedTime');
 
 const fullName = (u) => (u ? [u.firstName, u.lastName].filter(Boolean).join(' ') : null);
 // kpi_definition.is_active is a text column ('true'/'false'); the API speaks booleans.
@@ -74,15 +77,23 @@ class PerformanceService {
     if (teamId) conds.push(eq(schema.kpiDefinition.teamId, teamId));
     if (includeInactive !== 'true') conds.push(sql`${schema.kpiDefinition.isActive} is distinct from 'false'`);
 
-    const defs = await db.select().from(schema.kpiDefinition).where(and(...conds)).orderBy(asc(schema.kpiDefinition.name));
+    let defs = await db.select().from(schema.kpiDefinition).where(and(...conds)).orderBy(asc(schema.kpiDefinition.name));
     if (!defs.length) return [];
+
+    // Automatic KPIs refresh themselves when read, so a board is never older than a few minutes
+    // even between runs of the hourly job. Locked and recent readings are skipped inside syncKpi.
+    const autos = defs.filter((d) => d.source === 'auto' && kpiActive(d));
+    if (autos.length) {
+      const tz = await metrics.orgTz(orgId);
+      await Promise.all(autos.map((d) => metrics.syncKpi(d, { tz, recent: 2 }).catch((e) => console.error(`[kpi-sync] ${d.id}: ${e.message}`))));
+    }
 
     const ids = defs.map((d) => d.id);
     const [{ rows }, teamNames] = await Promise.all([
       db.execute(sql`
-        select kpi_id, value, period_label, period_date::text as period_date
+        select id, kpi_id, value, period_label, period_date::text as period_date, source, computed_value, override_reason, locked_at
         from (
-          select kpi_id, value, period_label, period_date, created_at,
+          select id, kpi_id, value, period_label, period_date, created_at, source, computed_value, override_reason, locked_at,
                  row_number() over (partition by kpi_id order by period_date desc, created_at desc) as rn
           from kpi_entry where kpi_id in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
         ) t
@@ -94,7 +105,11 @@ class PerformanceService {
     const byKpi = new Map();
     for (const r of rows) {
       if (!byKpi.has(r.kpi_id)) byKpi.set(r.kpi_id, []);
-      byKpi.get(r.kpi_id).push({ value: Number(r.value), periodLabel: r.period_label, periodDate: r.period_date });
+      byKpi.get(r.kpi_id).push({
+        id: r.id, value: Number(r.value), periodLabel: r.period_label, periodDate: r.period_date,
+        source: r.source, locked: !!r.locked_at, overridden: r.source === 'override',
+        computedValue: r.computed_value === null ? null : Number(r.computed_value), overrideReason: r.override_reason || null,
+      });
     }
 
     return defs.map((d) => {
@@ -105,6 +120,8 @@ class PerformanceService {
       return {
         ...d,
         isActive: kpiActive(d),
+        isAuto: d.source === 'auto',
+        metric: d.metricKey ? (({ key, label, kind, cumulative }) => ({ key, label, kind, cumulative }))(getMetric(d.metricKey) || {}) : null,
         teamName: teamNames.get(d.teamId) || null,
         latest, recent,
         health: math.kpiHealth(latest ? latest.value : null, d.targetValue, d.direction),
@@ -116,14 +133,29 @@ class PerformanceService {
 
   async createKpiDefinition(orgId, data, userId) {
     await this._assertTeamInOrg(orgId, data.teamId);
-    const [kpi] = await db.insert(schema.kpiDefinition).values({ ...data, organisationId: orgId, createdBy: userId }).returning();
+    const values = { ...data, organisationId: orgId, createdBy: userId };
+    if (data.metricKey) {
+      // Automatic: the metric supplies whatever the manager left out.
+      const m = getMetric(data.metricKey);
+      Object.assign(values, {
+        source: 'auto', name: data.name || m.label, unit: data.unit ?? m.unit, direction: data.direction || m.direction,
+        description: data.description ?? m.description,
+        frequency: data.frequency || (m.kind === 'snapshot' ? 'weekly' : 'monthly'),
+      });
+    } else values.source = 'manual';
+    const [kpi] = await db.insert(schema.kpiDefinition).values(values).returning();
     await auditWrite(orgId, userId, 'create', 'kpi', kpi.id, null, kpi, 'performance');
-    return { ...kpi, isActive: kpiActive(kpi) };
+    // Build its history straight away so the board isn't empty until the next hourly run.
+    if (kpi.source === 'auto') await metrics.syncKpi(kpi, { recent: 8 }).catch((e) => console.error(`[kpi-sync] ${kpi.id}: ${e.message}`));
+    return { ...kpi, isActive: kpiActive(kpi), isAuto: kpi.source === 'auto' };
   }
 
   async updateKpiDefinition(orgId, user, id, data) {
     const old = await this._load(schema.kpiDefinition, orgId, user, id, 'KPI', { entity: 'kpi', action: 'write' });
     const { isActive, ...rest } = data;
+    if (old.source === 'auto' && rest.frequency && rest.frequency !== old.frequency) {
+      throw new ConflictError('An automatic KPI keeps its frequency, because its history is built period by period. Create a new KPI for a different frequency');
+    }
     const patch = { ...rest, updatedAt: new Date() };
     if (isActive !== undefined) patch.isActive = isActive ? 'true' : 'false';
     const [updated] = await db.update(schema.kpiDefinition).set(patch)
@@ -149,8 +181,10 @@ class PerformanceService {
     if (data.teamId && data.teamId !== kpi.teamId) throw new BadRequestError('That KPI belongs to a different team');
     if (!kpiActive(kpi)) throw new ConflictError('This KPI is switched off. Turn it back on to record values');
 
-    const periodDate = data.periodDate || math.todayDate();
+    const periodDate = math.periodBounds(kpi.frequency, data.periodDate || localDate(new Date(), await metrics.orgTz(orgId))).start;
     const periodLabel = data.periodLabel || math.defaultPeriodLabel(kpi.frequency, periodDate);
+
+    if (kpi.source === 'auto') return this._overrideKpiEntry(orgId, user, kpi, { ...data, periodDate, periodLabel });
 
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`kpi_entry:${kpi.id}:${periodDate}`}))`);
@@ -167,6 +201,63 @@ class PerformanceService {
       }).returning();
       return { entry, replaced: false };
     });
+  }
+
+  /**
+   * An automatic KPI's reading can be corrected by a person, but never silently:
+   * a reason is required, and the value the system computed is kept beside it.
+   */
+  async _overrideKpiEntry(orgId, user, kpi, data) {
+    if (!data.notes) throw new BadRequestError('Add a reason to override a computed reading');
+    const computed = await metrics.computeKpiPeriod(kpi, data.periodDate);
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`kpi_entry:${kpi.id}:${data.periodDate}`}))`);
+      const [existing] = await tx.select().from(schema.kpiEntry)
+        .where(and(eq(schema.kpiEntry.kpiId, kpi.id), eq(schema.kpiEntry.periodDate, data.periodDate))).limit(1);
+      const patch = {
+        value: data.value, source: 'override', overrideReason: data.notes, notes: data.notes, periodLabel: data.periodLabel, recordedBy: user.userId,
+        computedValue: existing?.computedValue ?? computed,
+      };
+      if (existing) {
+        const [entry] = await tx.update(schema.kpiEntry).set(patch).where(eq(schema.kpiEntry.id, existing.id)).returning();
+        await auditWrite(orgId, user.userId, 'override', 'kpi_entry', entry.id, existing, entry, 'performance');
+        return { entry, replaced: true };
+      }
+      const [entry] = await tx.insert(schema.kpiEntry).values({ ...patch, kpiId: kpi.id, teamId: kpi.teamId, periodDate: data.periodDate }).returning();
+      await auditWrite(orgId, user.userId, 'override', 'kpi_entry', entry.id, null, entry, 'performance');
+      return { entry, replaced: false };
+    });
+  }
+
+  /** Drop an override: the reading goes back to what the system computes. */
+  async revertKpiOverride(orgId, user, entryId) {
+    const [entry] = await db.select().from(schema.kpiEntry).where(eq(schema.kpiEntry.id, entryId)).limit(1);
+    if (!entry) throw new NotFoundError('Reading not found');
+    const kpi = await this._load(schema.kpiDefinition, orgId, user, entry.kpiId, 'Reading', { entity: 'kpi', action: 'write' });
+    if (entry.source !== 'override') throw new ConflictError('This reading has not been overridden');
+    const value = (await metrics.computeKpiPeriod(kpi, entry.periodDate)) ?? entry.computedValue;
+    if (value === null || value === undefined) throw new ConflictError('The computed value for that period is no longer available, so the override has to stay');
+    const [updated] = await db.update(schema.kpiEntry)
+      .set({ value, computedValue: value, source: 'auto', overrideReason: null, notes: null, recordedBy: null, computedAt: new Date() })
+      .where(eq(schema.kpiEntry.id, entryId)).returning();
+    await auditWrite(orgId, user.userId, 'revert_override', 'kpi_entry', entryId, entry, updated, 'performance');
+    return updated;
+  }
+
+  /** "Recompute now" for one automatic KPI (open periods and any not yet locked). */
+  async recomputeKpi(orgId, user, id) {
+    const kpi = await this._load(schema.kpiDefinition, orgId, user, id, 'KPI', { entity: 'kpi', action: 'write' });
+    if (kpi.source !== 'auto') throw new ConflictError('Only automatic KPIs can be recomputed');
+    const { written } = await metrics.syncKpi(kpi, { recent: 8, force: true });
+    return { written };
+  }
+
+  /** Recompute everything automatic in the teams the caller manages. */
+  async syncNow(orgId, user) {
+    const kpiTeams = teamsWithPermission(user, 'kpi', 'write');
+    const goalTeams = teamsWithPermission(user, 'goals', 'write');
+    const teamIds = kpiTeams === null || goalTeams === null ? null : [...new Set([...kpiTeams, ...goalTeams])];
+    return metrics.syncOrg(orgId, { teamIds, force: true });
   }
 
   // ── Reviews ───────────────────────────────────────────────────────────────
@@ -264,11 +355,14 @@ class PerformanceService {
     const [names, teamNames] = await Promise.all([this._userNames(rows.map((g) => g.assignedTo)), this._teamNames(orgId)]);
     return rows.map((g) => {
       const effectiveStatus = math.effectiveGoalStatus(g);
-      return { ...g, teamName: teamNames.get(g.teamId) || null, assignedToName: names.get(g.assignedTo) || null, effectiveStatus, isOverdue: effectiveStatus === 'overdue', daysLeft: math.daysUntil(g.dueDate), isMine: !!user && g.assignedTo === user.userId };
+      const m = g.metricKey ? getMetric(g.metricKey) : null;
+      return { ...g, isAuto: g.progressSource === 'auto', metric: m ? { key: m.key, label: m.label, unit: m.unit, direction: m.direction, cumulative: m.cumulative } : null, teamName: teamNames.get(g.teamId) || null, assignedToName: names.get(g.assignedTo) || null, effectiveStatus, isOverdue: effectiveStatus === 'overdue', daysLeft: math.daysUntil(g.dueDate), isMine: !!user && g.assignedTo === user.userId };
     });
   }
 
   async getGoals(orgId, user, { teamId, assignedTo, status } = {}) {
+    // Metric goals refresh when read if they haven't been computed in the last few minutes.
+    await metrics.syncGoalsForOrg(orgId, { teamIds: visibleTeamIds(user) }).catch((e) => console.error(`[goal-sync] ${e.message}`));
     const conds = [eq(schema.goal.organisationId, orgId)];
     const reach = inTeams(schema.goal.teamId, visibleTeamIds(user));
     if (reach) conds.push(reach);
@@ -282,19 +376,38 @@ class PerformanceService {
   async createGoal(orgId, user, data) {
     await this._assertTeamInOrg(orgId, data.teamId);
     if (data.assignedTo) await this._assertTeamMember(orgId, data.teamId, data.assignedTo, 'The person you\'re assigning this to');
-    const [goal] = await db.insert(schema.goal).values({ ...data, organisationId: orgId, createdBy: user.userId }).returning();
+    const values = { ...data, organisationId: orgId, createdBy: user.userId };
+    if (data.metricKey) {
+      const m = getMetric(data.metricKey);
+      if (data.assignedTo && !m.userScope) throw new BadRequestError(`${m.label} can only be measured for a whole team. Leave the goal unassigned`);
+      values.progressSource = 'auto';
+      values.progressPct = 0;
+      values.startDate = data.startDate || localDate(new Date(), await metrics.orgTz(orgId));
+    }
+    let [goal] = await db.insert(schema.goal).values(values).returning();
     await auditWrite(orgId, user.userId, 'create', 'goal', goal.id, null, goal, 'performance');
+    if (goal.progressSource === 'auto') goal = await metrics.syncGoal(goal);
     return (await this._shapeGoals(orgId, [goal], user))[0];
   }
 
   async updateGoal(orgId, user, id, data) {
     const old = await this._load(schema.goal, orgId, user, id, 'Goal', { entity: 'goals', action: 'write' });
     if (data.assignedTo) await this._assertTeamMember(orgId, old.teamId, data.assignedTo, 'The person you\'re assigning this to');
+    const isAuto = old.progressSource === 'auto';
+    if (!isAuto && (data.targetValue !== undefined || data.startDate !== undefined)) throw new BadRequestError('Only a metric goal has a target and start date');
+    if (isAuto && data.progressPct !== undefined) throw new BadRequestError('Progress is computed automatically for this goal');
+    if (isAuto && data.assignedTo && !getMetric(old.metricKey).userScope) throw new BadRequestError('That metric can only be measured for a whole team. Leave the goal unassigned');
+    const startDate = data.startDate ?? old.startDate; const dueDate = data.dueDate === undefined ? old.dueDate : data.dueDate;
+    if (isAuto && (!dueDate || (startDate && startDate > dueDate))) throw new BadRequestError('A metric goal needs a due date after its start date');
+
     const patch = { ...data, updatedAt: new Date() };
-    if (data.status === 'completed') { patch.progressPct = 100; if (old.status !== 'completed') patch.completedAt = new Date(); }
+    if (data.status === 'completed') { patch.progressPct = 100; if (old.status !== 'completed') patch.completedAt = new Date(); if (isAuto) patch.finalizedAt = new Date(); }
     if (data.status && data.status !== 'completed') patch.completedAt = null;
-    const [updated] = await db.update(schema.goal).set(patch).where(and(eq(schema.goal.id, id), eq(schema.goal.organisationId, orgId))).returning();
+    // Changing what is measured, or reopening the goal, puts it back in the automatic loop.
+    if (isAuto && (['targetValue', 'startDate', 'dueDate', 'assignedTo'].some((f) => data[f] !== undefined) || (data.status && data.status !== 'completed'))) patch.finalizedAt = null;
+    let [updated] = await db.update(schema.goal).set(patch).where(and(eq(schema.goal.id, id), eq(schema.goal.organisationId, orgId))).returning();
     await auditWrite(orgId, user.userId, 'update', 'goal', id, old, updated, 'performance');
+    if (isAuto && !updated.finalizedAt) updated = await metrics.syncGoal(updated);
     return (await this._shapeGoals(orgId, [updated], user))[0];
   }
 
@@ -303,6 +416,7 @@ class PerformanceService {
     const [old] = await db.select().from(schema.goal)
       .where(and(eq(schema.goal.id, id), eq(schema.goal.organisationId, orgId), eq(schema.goal.assignedTo, user.userId))).limit(1);
     if (!old) throw new NotFoundError('Goal not found');
+    if (old.progressSource === 'auto') throw new ConflictError('This goal\'s progress is tracked automatically from the pipeline');
     if (old.status === 'completed' || old.status === 'cancelled') throw new ConflictError(`This goal is ${old.status}`);
     const done = complete === true || progressPct === 100;
     const patch = { progressPct: done ? 100 : progressPct, updatedAt: new Date() };
@@ -313,6 +427,48 @@ class PerformanceService {
   }
 
   // ── Strategy ──────────────────────────────────────────────────────────────
+  /** The dates key results are measured over: explicit, else read from the period text. */
+  _strategyWindow(period, startDate, endDate) {
+    if (startDate && endDate) return { start: startDate, end: endDate };
+    const p = math.parsePeriod(period);
+    return p ? { start: p.start, end: p.end } : null;
+  }
+
+  /**
+   * Normalise key results and make sure every link points at something in the same
+   * org and team. Computed key results never keep a typed `current`; manual ones start at 0.
+   */
+  async _prepareObjectives(orgId, teamId, objectives, window) {
+    const krs = (objectives || []).flatMap((o) => o.key_results || []);
+    if (krs.some((k) => k.type === 'metric' || k.type === 'kpi') && !window) {
+      throw new BadRequestError('Add a start and end date for this period so the numbers can be measured. A period like "FY2026" can\'t be read automatically');
+    }
+    const kpiIds = [...new Set(krs.filter((k) => k.type === 'kpi').map((k) => k.kpi_id))];
+    const goalIds = [...new Set(krs.filter((k) => k.type === 'goal').flatMap((k) => k.goal_ids))];
+    if (kpiIds.length) {
+      const rows = await db.select({ id: schema.kpiDefinition.id }).from(schema.kpiDefinition)
+        .where(and(eq(schema.kpiDefinition.organisationId, orgId), eq(schema.kpiDefinition.teamId, teamId), inArray(schema.kpiDefinition.id, kpiIds)));
+      if (rows.length !== kpiIds.length) throw new BadRequestError('A linked KPI doesn\'t exist in this team');
+    }
+    if (goalIds.length) {
+      const rows = await db.select({ id: schema.goal.id }).from(schema.goal)
+        .where(and(eq(schema.goal.organisationId, orgId), eq(schema.goal.teamId, teamId), inArray(schema.goal.id, goalIds)));
+      if (rows.length !== goalIds.length) throw new BadRequestError('A linked goal doesn\'t exist in this team');
+    }
+    return (objectives || []).map((o) => ({
+      ...o,
+      key_results: (o.key_results || []).map(({ current, ...k }) => (k.type === 'manual' ? { ...k, current: current ?? 0 } : k)),
+    }));
+  }
+
+  async _shapeStrategies(rows, teamNames) {
+    const tz = rows.length ? await metrics.orgTz(rows[0].organisationId) : 'UTC';
+    return Promise.all(rows.map(async (s) => {
+      const r = await metrics.resolveStrategy(s, { tz });
+      return { ...s, teamName: teamNames.get(s.teamId) || null, objectives: r.objectives, progressPct: r.progressPct, window: r.window, isFinal: !!s.finalizedAt };
+    }));
+  }
+
   async getStrategies(orgId, user, { teamId, status } = {}) {
     const conds = [eq(schema.teamStrategy.organisationId, orgId)];
     const reach = inTeams(schema.teamStrategy.teamId, visibleTeamIds(user));
@@ -323,27 +479,42 @@ class PerformanceService {
       db.select().from(schema.teamStrategy).where(and(...conds)).orderBy(desc(schema.teamStrategy.createdAt)),
       this._teamNames(orgId),
     ]);
-    return rows.map((s) => {
-      const krs = (s.objectives || []).flatMap((o) => o.key_results || []);
-      const pcts = krs.filter((k) => k.target).map((k) => Math.min(100, ((k.current || 0) / k.target) * 100));
-      return { ...s, teamName: teamNames.get(s.teamId) || null, progressPct: pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null };
-    });
+    return this._shapeStrategies(rows, teamNames);
   }
 
   async createStrategy(orgId, user, data) {
     await this._assertTeamInOrg(orgId, data.teamId);
-    const objectives = (data.objectives || []).map((o) => ({ ...o, key_results: o.key_results.map((k) => ({ ...k, current: k.current ?? 0 })) }));
-    const [strategy] = await db.insert(schema.teamStrategy).values({ ...data, objectives, organisationId: orgId, createdBy: user.userId }).returning();
+    const { startDate, endDate, ...rest } = data;
+    const window = this._strategyWindow(data.period, startDate, endDate);
+    const objectives = await this._prepareObjectives(orgId, data.teamId, data.objectives, window);
+    const [strategy] = await db.insert(schema.teamStrategy).values({
+      ...rest, objectives, periodStart: window?.start ?? null, periodEnd: window?.end ?? null, organisationId: orgId, createdBy: user.userId,
+    }).returning();
     await auditWrite(orgId, user.userId, 'create', 'strategy', strategy.id, null, strategy, 'performance');
-    return strategy;
+    return (await this._shapeStrategies([strategy], await this._teamNames(orgId)))[0];
   }
 
   async updateStrategy(orgId, user, id, data) {
     const old = await this._load(schema.teamStrategy, orgId, user, id, 'Strategy', { entity: 'strategy', action: 'write' });
-    const [updated] = await db.update(schema.teamStrategy).set({ ...data, updatedAt: new Date() })
+    const { startDate, endDate, ...rest } = data;
+    const touchesMeasurement = ['objectives', 'period'].some((f) => rest[f] !== undefined) || startDate !== undefined || endDate !== undefined;
+    if (old.finalizedAt && touchesMeasurement) {
+      throw new ConflictError('This strategy\'s period is over and its results are locked. Start a new strategy for the next period');
+    }
+    const patch = { ...rest, updatedAt: new Date() };
+    if (touchesMeasurement) {
+      const period = rest.period ?? old.period;
+      const explicit = startDate && endDate ? { start: startDate, end: endDate } : null;
+      // Changing the period text re-reads the window; otherwise the stored dates stand.
+      const window = explicit || (rest.period !== undefined ? this._strategyWindow(period) : (old.periodStart && old.periodEnd ? { start: old.periodStart, end: old.periodEnd } : this._strategyWindow(period)));
+      patch.objectives = await this._prepareObjectives(orgId, old.teamId, rest.objectives ?? old.objectives, window);
+      patch.periodStart = window?.start ?? null;
+      patch.periodEnd = window?.end ?? null;
+    }
+    const [updated] = await db.update(schema.teamStrategy).set(patch)
       .where(and(eq(schema.teamStrategy.id, id), eq(schema.teamStrategy.organisationId, orgId))).returning();
     await auditWrite(orgId, user.userId, 'update', 'strategy', id, old, updated, 'performance');
-    return updated;
+    return (await this._shapeStrategies([updated], await this._teamNames(orgId)))[0];
   }
 
   // ── Roll-up for dashboards ────────────────────────────────────────────────

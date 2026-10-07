@@ -1,11 +1,14 @@
 const { z } = require('zod');
-const { toDateOnly } = require('./performance.math');
+const { toDateOnly, parsePeriod } = require('./performance.math');
+const { getMetric } = require('./metrics.catalogue');
 
 const uuid = (what) => z.string().uuid(`Invalid ${what}`);
 
 // Accepts 'YYYY-MM-DD' (what a date picker sends) or a full ISO datetime, and
 // hands the service a plain 'YYYY-MM-DD' — the DB columns are `date`.
 const dateInput = z.string().refine((v) => toDateOnly(v) !== null, 'Use a valid date, e.g. 2026-03-31').transform(toDateOnly);
+
+const metricKey = z.string().refine((k) => !!getMetric(k), 'Unknown metric. Pick one from the metric list');
 
 const kpiFields = {
   name: z.string().trim().min(1, 'Name is required').max(120),
@@ -26,7 +29,16 @@ const listKpisSchema = z.object({
 });
 
 const { teamId: _teamId, ...kpiEditableFields } = kpiFields;
-const createKpiSchema = z.object({ body: z.object(kpiFields) });
+// An automatic KPI is just "which metric, which team, what target": the name,
+// unit and direction fall back to the metric's own, and the readings fill themselves in.
+const createKpiSchema = z.object({
+  body: z.object({ ...kpiFields, name: kpiFields.name.optional(), metricKey: metricKey.optional(), source: z.enum(['auto', 'manual']).optional() })
+    .superRefine((b, ctx) => {
+      if (b.source === 'manual' && b.metricKey) ctx.addIssue({ code: 'custom', path: ['metricKey'], message: 'A manual KPI has no metric. Leave it out or choose automatic' });
+      if (b.source === 'auto' && !b.metricKey) ctx.addIssue({ code: 'custom', path: ['metricKey'], message: 'Choose which metric this KPI measures' });
+      if (!b.metricKey && !b.name) ctx.addIssue({ code: 'custom', path: ['name'], message: 'Name is required' });
+    }),
+});
 
 const updateKpiSchema = z.object({
   // A KPI never moves between teams: its history belongs to the team that recorded it.
@@ -48,9 +60,13 @@ const createKpiEntrySchema = z.object({
     value: z.number().finite(),
     periodLabel: z.string().trim().min(1).max(40).optional(),
     periodDate: dateInput.optional(),
+    // For an automatic KPI this is the reason for overriding the computed value.
     notes: z.string().trim().max(1000).optional(),
   }),
 });
+
+const entryIdParamsSchema = z.object({ params: z.object({ id: uuid('entry ID') }) });
+const syncSchema = z.object({ body: z.object({ force: z.boolean().optional() }).optional() });
 
 const scoresSchema = z.record(z.string().min(1).max(40), z.number().min(1, 'Scores run from 1 to 5').max(5, 'Scores run from 1 to 5'));
 
@@ -100,6 +116,19 @@ const createGoalSchema = z.object({
     assignedTo: uuid('user ID').optional(),
     dueDate: dateInput.optional(),
     progressPct: z.number().int().min(0).max(100).optional(),
+    // Metric goal: progress is measured from the pipeline between startDate and dueDate.
+    metricKey: metricKey.optional(),
+    targetValue: z.number().finite().positive('Target must be more than zero').optional(),
+    startDate: dateInput.optional(),
+  }).superRefine((b, ctx) => {
+    if (b.metricKey) {
+      if (b.targetValue === undefined) ctx.addIssue({ code: 'custom', path: ['targetValue'], message: 'Set a target for this goal' });
+      if (!b.dueDate) ctx.addIssue({ code: 'custom', path: ['dueDate'], message: 'Set a due date so progress has a window to be measured in' });
+      if (b.progressPct !== undefined) ctx.addIssue({ code: 'custom', path: ['progressPct'], message: 'Progress is computed automatically for a metric goal' });
+      if (b.startDate && b.dueDate && b.startDate > b.dueDate) ctx.addIssue({ code: 'custom', path: ['startDate'], message: 'Start date must be before the due date' });
+    } else if (b.targetValue !== undefined || b.startDate) {
+      ctx.addIssue({ code: 'custom', path: ['metricKey'], message: 'Choose a metric to measure this goal by' });
+    }
   }),
 });
 
@@ -111,6 +140,8 @@ const updateGoalSchema = z.object({
     status: z.enum(['active', 'completed', 'cancelled']),
     progressPct: z.number().int().min(0).max(100),
     dueDate: dateInput.nullable(),
+    targetValue: z.number().finite().positive(),
+    startDate: dateInput,
   }).partial().strict().refine((b) => Object.keys(b).length > 0, 'Nothing to update'),
   params: z.object({ id: uuid('goal ID') }),
 });
@@ -120,15 +151,30 @@ const goalProgressSchema = z.object({
   params: z.object({ id: uuid('goal ID') }),
 });
 
+// A key result is measured one of four ways. 'manual' (the default, and what every
+// older strategy has) uses the number a person types; the others are computed.
 const keyResultSchema = z.object({
   kr: z.string().trim().min(1).max(200),
   target: z.number().finite(),
   current: z.number().finite().optional(),
+  type: z.enum(['manual', 'metric', 'kpi', 'goal']).default('manual'),
+  metric_key: metricKey.optional(),
+  kpi_id: uuid('KPI ID').optional(),
+  goal_ids: z.array(uuid('goal ID')).min(1).max(20).optional(),
+}).superRefine((k, ctx) => {
+  if (k.type === 'metric' && !k.metric_key) ctx.addIssue({ code: 'custom', path: ['metric_key'], message: 'Choose the metric this key result is measured by' });
+  if (k.type === 'kpi' && !k.kpi_id) ctx.addIssue({ code: 'custom', path: ['kpi_id'], message: 'Choose the KPI this key result follows' });
+  if (k.type === 'goal' && !k.goal_ids?.length) ctx.addIssue({ code: 'custom', path: ['goal_ids'], message: 'Choose the goals this key result rolls up' });
 });
 const objectivesSchema = z.array(z.object({
   objective: z.string().trim().min(1).max(200),
   key_results: z.array(keyResultSchema).max(10).default([]),
 })).max(10);
+
+function windowRule(b, ctx) {
+  if ((b.startDate && !b.endDate) || (!b.startDate && b.endDate)) ctx.addIssue({ code: 'custom', path: ['endDate'], message: 'Give both a start and an end date' });
+  if (b.startDate && b.endDate && b.startDate > b.endDate) ctx.addIssue({ code: 'custom', path: ['startDate'], message: 'Start date must be before the end date' });
+}
 
 const listStrategiesSchema = z.object({
   query: z.object({
@@ -145,7 +191,10 @@ const createStrategySchema = z.object({
     description: z.string().trim().max(2000).optional(),
     objectives: objectivesSchema.optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
-  }),
+    // Optional: read from `period` when it is like "Q4 2026" / "H2 2026" / "Oct 2026".
+    startDate: dateInput.optional(),
+    endDate: dateInput.optional(),
+  }).superRefine(windowRule),
 });
 
 const updateStrategySchema = z.object({
@@ -155,6 +204,9 @@ const updateStrategySchema = z.object({
     description: z.string().trim().max(2000),
     objectives: objectivesSchema,
     status: z.enum(['draft', 'active', 'archived']),
+    startDate: dateInput,
+    endDate: dateInput,
+    retrospective: z.string().trim().max(4000),
   }).partial().strict().refine((b) => Object.keys(b).length > 0, 'Nothing to update'),
   params: z.object({ id: uuid('strategy ID') }),
 });
@@ -166,7 +218,7 @@ module.exports = {
   listReviewsSchema, createReviewSchema, updateReviewSchema,
   listGoalsSchema, createGoalSchema, updateGoalSchema, goalProgressSchema,
   listStrategiesSchema, createStrategySchema, updateStrategySchema,
-  idParamsSchema,
+  idParamsSchema, entryIdParamsSchema, syncSchema, parsePeriod,
   // kept for older imports
   genericParamsSchema: idParamsSchema,
 };

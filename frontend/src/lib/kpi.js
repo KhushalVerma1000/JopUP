@@ -29,3 +29,15 @@ export const TONE_TEXT = {
   bad: 'text-destructive',
   default: 'text-muted-foreground',
 };
+
+// Key-result status, decided by the API; this only words and colours it.
+export const KR_STATUS = {
+  achieved: { label: 'Achieved', tone: 'good' },
+  on_track: { label: 'On track', tone: 'good' },
+  at_risk: { label: 'At risk', tone: 'warn' },
+  off_track: { label: 'Off track', tone: 'bad' },
+  missed: { label: 'Missed', tone: 'bad' },
+  just_started: { label: 'Just started', tone: 'default' },
+  not_started: { label: 'Not started', tone: 'default' },
+  no_data: { label: 'No data yet', tone: 'default' },
+};

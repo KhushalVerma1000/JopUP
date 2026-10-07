@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect } from '@/components/ui/native-select';
 import { fullName, shortDate } from '../../lib/format';
+import { formatValue, todayInput } from '../../lib/kpi';
+import { MetricSelect, AutoBadge } from './MetricSelect';
 
 const FILTERS = [{ key: 'active', label: 'Active' }, { key: 'overdue', label: 'Overdue' }, { key: 'completed', label: 'Completed' }, { key: 'all', label: 'All' }];
 
@@ -38,8 +40,8 @@ export function GoalsTab({ teams, users, canWrite }) {
             <Card key={g.id} className="gap-3 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold">{g.title}</h3>
-                  <p className="text-xs text-muted-foreground">{g.assignedToName || 'Whole team'}{g.dueDate ? ` · due ${shortDate(g.dueDate)}` : ''}</p>
+                  <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold">{g.title}{g.isAuto && <AutoBadge />}</h3>
+                  <p className="text-xs text-muted-foreground">{g.assignedToName || 'Whole team'}{g.dueDate ? ` · due ${shortDate(g.dueDate)}` : ''}{g.isAuto && g.metric ? ` · ${g.metric.label}` : ''}</p>
                 </div>
                 <StatusPill status={g.effectiveStatus === 'overdue' ? 'on_hold' : g.effectiveStatus === 'completed' ? 'active' : g.effectiveStatus}>{g.effectiveStatus}</StatusPill>
               </div>
@@ -48,7 +50,13 @@ export function GoalsTab({ teams, users, canWrite }) {
                 <Bar value={g.progressPct} max={100} label={`${g.title} progress`} tone={g.effectiveStatus === 'overdue' ? 'warn' : 'primary'} />
                 <span className="w-10 text-right text-sm tabular-nums">{g.progressPct}%</span>
               </div>
-              {(canWrite || g.isMine) && g.status !== 'completed' && g.status !== 'cancelled' && (
+              {g.isAuto && g.metric && (
+                <p className="text-xs text-muted-foreground">
+                  {formatValue(g.currentValue ?? 0, g.metric.unit)} of {formatValue(g.targetValue, g.metric.unit)}
+                  {g.startDate ? ` since ${shortDate(g.startDate)}` : ''}
+                </p>
+              )}
+              {!g.isAuto && (canWrite || g.isMine) && g.status !== 'completed' && g.status !== 'cancelled' && (
                 <Button variant="outline" size="sm" className="justify-self-start" onClick={() => setEditing(g)}>Update progress</Button>
               )}
             </Card>
@@ -95,23 +103,32 @@ function ProgressSheet({ goal, canWrite, onClose, onSaved }) {
 }
 
 function CreateGoalSheet({ open, teams, users, onClose, onSaved }) {
-  const blank = { title: '', teamId: '', assignedTo: '', dueDate: '', description: '' };
+  const blank = { mode: 'auto', metricKey: '', targetValue: '', startDate: todayInput(), title: '', teamId: '', assignedTo: '', dueDate: '', description: '' };
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
   const team = f.teamId || (teams.length === 1 ? teams[0].id : '');
   const people = users.filter((u) => u.roles?.some((r) => r.teamId === team));
+  const metrics = useFetch('/api/v1/performance/metrics');
+  const picked = (metrics.data?.metrics || []).find((m) => m.key === f.metricKey);
+  const autoTitle = picked ? `${picked.label}: ${f.targetValue}` : '';
 
   async function submit(e) {
     e.preventDefault();
-    if (!f.title.trim()) { setError('Describe the goal in a few words, e.g. “Place 10 candidates by March”.'); return; }
+    if (f.mode === 'auto') {
+      if (!f.metricKey) { setError('Choose what this goal is measured by.'); return; }
+      if (f.targetValue === '' || !(Number(f.targetValue) > 0)) { setError('Set a target more than zero.'); return; }
+      if (!f.dueDate) { setError('Set a due date, so progress is measured over a window.'); return; }
+    } else if (!f.title.trim()) { setError('Describe the goal in a few words, e.g. “Complete onboarding checklist”.'); return; }
     if (!team) { setError('Choose which team this goal is for.'); return; }
     setBusy(true); setError(null);
     try {
       await apiFetch('/api/v1/performance/goals', {
         method: 'POST',
-        body: { teamId: team, title: f.title.trim(), description: f.description.trim() || undefined, assignedTo: f.assignedTo || undefined, dueDate: f.dueDate || undefined },
+        body: f.mode === 'auto'
+          ? { teamId: team, title: f.title.trim() || autoTitle, description: f.description.trim() || undefined, assignedTo: f.assignedTo || undefined, dueDate: f.dueDate, metricKey: f.metricKey, targetValue: Number(f.targetValue), startDate: f.startDate || undefined }
+          : { teamId: team, title: f.title.trim(), description: f.description.trim() || undefined, assignedTo: f.assignedTo || undefined, dueDate: f.dueDate || undefined },
       });
       setF(blank); onSaved();
     } catch (err) { setError(errorMessage(err, 'We couldn’t save this goal. Please try again.')); } finally { setBusy(false); }
@@ -121,14 +138,24 @@ function CreateGoalSheet({ open, teams, users, onClose, onSaved }) {
     <Sheet open={open} onClose={onClose} title="Set a goal" description="Leave “Assign to” empty to make it a team goal.">
       <form onSubmit={submit} className="grid gap-4">
         <ErrorNote>{error}</ErrorNote>
-        <Field label="Goal" htmlFor="gt"><Input id="gt" autoFocus value={f.title} onChange={set('title')} /></Field>
+        <Chips items={[{ key: 'auto', label: 'Measured automatically' }, { key: 'manual', label: 'Track by hand' }]} value={f.mode} onChange={(mode) => setF((s) => ({ ...s, mode }))} />
+        {f.mode === 'auto' && (
+          <>
+            <MetricSelect id="gm" value={f.metricKey} teamOnly={!!f.assignedTo} onChange={(metricKey) => setF((s) => ({ ...s, metricKey }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={`Target${picked?.unit && picked.unit !== 'count' ? ` (${picked.unit})` : ''}`} htmlFor="gtg"><Input id="gtg" inputMode="decimal" value={f.targetValue} onChange={set('targetValue')} /></Field>
+              <Field label="Counts from" htmlFor="gs"><Input id="gs" type="date" value={f.startDate} onChange={set('startDate')} /></Field>
+            </div>
+          </>
+        )}
+        <Field label={f.mode === 'auto' ? 'Title (optional)' : 'Goal'} htmlFor="gt" hint={f.mode === 'auto' && autoTitle ? `Leave blank to use “${autoTitle}”.` : undefined}><Input id="gt" autoFocus={f.mode === 'manual'} value={f.title} onChange={set('title')} /></Field>
         {teams.length > 1 && (
           <Field label="Team" htmlFor="gtm"><NativeSelect id="gtm" value={team} onChange={set('teamId')}><option value="">Select a team</option>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</NativeSelect></Field>
         )}
         <Field label="Assign to (optional)" htmlFor="ga">
           <NativeSelect id="ga" value={f.assignedTo} onChange={set('assignedTo')}><option value="">Whole team</option>{people.map((u) => <option key={u.id} value={u.id}>{fullName(u)}</option>)}</NativeSelect>
         </Field>
-        <Field label="Due date (optional)" htmlFor="gd"><Input id="gd" type="date" value={f.dueDate} onChange={set('dueDate')} /></Field>
+        <Field label={f.mode === 'auto' ? 'Due date' : 'Due date (optional)'} htmlFor="gd"><Input id="gd" type="date" value={f.dueDate} onChange={set('dueDate')} /></Field>
         <Field label="Details (optional)" htmlFor="gdesc"><Textarea id="gdesc" rows={3} value={f.description} onChange={set('description')} /></Field>
         <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save goal'}</Button>
       </form>

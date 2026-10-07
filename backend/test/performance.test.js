@@ -126,3 +126,78 @@ for (const [method, path] of [
     assert.equal((await request(app)[method](path).send({})).status, 401);
   });
 }
+
+// ── Automatic metrics: pure rules ─────────────────────────────────────────────
+const catalogue = require('../src/features/performance/metrics.catalogue');
+
+test('periodBounds: monthly, weekly (Monday start), quarterly, daily, year rollover', () => {
+  assert.deepEqual(math.periodBounds('monthly', '2026-12-15'), { start: '2026-12-01', end: '2027-01-01' });
+  assert.deepEqual(math.periodBounds('weekly', '2026-10-06'), { start: '2026-10-05', end: '2026-10-12' });
+  assert.deepEqual(math.periodBounds('weekly', '2026-10-11'), { start: '2026-10-05', end: '2026-10-12' }); // Sunday
+  assert.deepEqual(math.periodBounds('quarterly', '2026-11-30'), { start: '2026-10-01', end: '2027-01-01' });
+  assert.deepEqual(math.periodBounds('daily', '2026-02-28'), { start: '2026-02-28', end: '2026-03-01' });
+});
+test('recentPeriods walks back oldest-first across year boundaries', () => {
+  assert.deepEqual(math.recentPeriods('monthly', '2026-02-10', 3).map((p) => p.start), ['2025-12-01', '2026-01-01', '2026-02-01']);
+});
+test('parsePeriod reads quarters, halves, years and months; refuses FY (ambiguous)', () => {
+  assert.deepEqual(math.parsePeriod('Q4 2026'), { start: '2026-10-01', end: '2026-12-31' });
+  assert.deepEqual(math.parsePeriod('H1 2026'), { start: '2026-01-01', end: '2026-06-30' });
+  assert.deepEqual(math.parsePeriod('2026'), { start: '2026-01-01', end: '2026-12-31' });
+  assert.deepEqual(math.parsePeriod('Feb 2028'), { start: '2028-02-01', end: '2028-02-29' });
+  assert.equal(math.parsePeriod('FY2026'), null);
+  assert.equal(math.parsePeriod('next year'), null);
+});
+test('progressPct respects direction and is clamped to 0-100', () => {
+  assert.equal(math.progressPct(18, 40), 45);
+  assert.equal(math.progressPct(80, 40), 100);
+  assert.equal(math.progressPct(18, 20, 'lower_better'), 100);
+  assert.equal(math.progressPct(25, 20, 'lower_better'), 80);
+  assert.equal(math.progressPct(null, 20), null);
+  assert.equal(math.progressPct(5, 0), null);
+});
+test('krStatus: counts are paced against elapsed time; rates are judged against target', () => {
+  const w = { start: '2026-10-01', end: '2026-12-31' };
+  const count = (progress) => math.krStatus({ progress, current: progress, target: 100, direction: 'higher_better', pacing: true }, w, '2026-11-15');
+  assert.equal(count(60), 'on_track');     // ~46% of the quarter gone
+  assert.equal(count(35), 'at_risk');
+  assert.equal(count(10), 'off_track');
+  assert.equal(count(100), 'achieved');
+  assert.equal(math.krStatus({ progress: 0, pacing: true }, w, '2026-10-06'), 'just_started'); // day 6 of 92: too early to judge
+  assert.equal(math.krStatus({ progress: 50, pacing: true }, w, '2026-09-01'), 'not_started');
+  assert.equal(math.krStatus({ progress: 60, pacing: true }, w, '2027-01-02'), 'missed');
+  assert.equal(math.krStatus({ progress: null }, w, '2026-11-15'), 'no_data');
+  const rate = math.krStatus({ progress: 100, current: 18, target: 20, direction: 'lower_better', pacing: false }, w, '2026-11-15');
+  assert.equal(rate, 'on_track');
+});
+test('catalogue: every metric is fully described and guessMetricKey only matches real keys', () => {
+  for (const m of catalogue.METRICS) {
+    assert.ok(m.key && m.label && m.unit && m.description, m.key);
+    assert.ok(['higher_better', 'lower_better', 'target_exact'].includes(m.direction), m.key);
+    assert.ok(['flow', 'snapshot'].includes(m.kind), m.key);
+    assert.equal(typeof m.compute, 'function', m.key);
+    assert.ok(!m.cumulative || m.kind === 'flow', `${m.key}: only flow metrics can accumulate`);
+  }
+  assert.equal(new Set(catalogue.METRICS.map((m) => m.key)).size, catalogue.METRICS.length, 'unique keys');
+  assert.equal(catalogue.guessMetricKey('Placements per month'), 'placements');
+  assert.equal(catalogue.guessMetricKey('Cut time-to-place to 20 days'), 'avg_days_to_place');
+  assert.equal(catalogue.guessMetricKey('Client satisfaction'), null);
+  assert.equal(catalogue.guessMetricKey('Add 3 new client accounts'), null);
+  assert.ok(catalogue.listMetrics().every((m) => !('compute' in m)));
+});
+test('schemas: auto KPI needs only a metric; metric goals need target + due date; key results validate by type', () => {
+  const T = '22222222-2222-4222-8222-222222222222';
+  assert.equal(schema.createKpiSchema.safeParse({ body: { teamId: T, metricKey: 'placements', targetValue: 6 } }).success, true);
+  assert.equal(schema.createKpiSchema.safeParse({ body: { teamId: T } }).success, false);
+  assert.equal(schema.createKpiSchema.safeParse({ body: { teamId: T, metricKey: 'bogus' } }).success, false);
+  assert.equal(schema.createKpiSchema.safeParse({ body: { teamId: T, source: 'manual', metricKey: 'placements' } }).success, false);
+  assert.equal(schema.createGoalSchema.safeParse({ body: { teamId: T, title: 'g', metricKey: 'placements', targetValue: 5, dueDate: '2026-12-31' } }).success, true);
+  assert.equal(schema.createGoalSchema.safeParse({ body: { teamId: T, title: 'g', metricKey: 'placements', targetValue: 5 } }).success, false);
+  assert.equal(schema.createGoalSchema.safeParse({ body: { teamId: T, title: 'g', targetValue: 5 } }).success, false);
+  const strat = (kr) => schema.createStrategySchema.safeParse({ body: { teamId: T, title: 's', period: 'Q4 2026', objectives: [{ objective: 'o', key_results: [kr] }] } });
+  assert.equal(strat({ kr: 'a', target: 1 }).success, true, 'old-style manual key results still validate');
+  assert.equal(strat({ kr: 'a', target: 1, type: 'metric', metric_key: 'placements' }).success, true);
+  assert.equal(strat({ kr: 'a', target: 1, type: 'metric' }).success, false);
+  assert.equal(strat({ kr: 'a', target: 1, type: 'kpi' }).success, false);
+  assert.equal(strat({ kr: 'a', target: 1, type: 'goal', goal_ids: [] }).success, false);
+});

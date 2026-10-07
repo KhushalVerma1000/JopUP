@@ -23,6 +23,10 @@ class PerformanceController {
     ok(res, { entry, replaced }, replaced ? 200 : 201);
   }
 
+  async revertKpiOverride(req, res) { ok(res, { entry: await perf.revertKpiOverride(req.tenantId, req.user, req.params.id) }); }
+  async recomputeKpi(req, res) { ok(res, await perf.recomputeKpi(req.tenantId, req.user, req.params.id)); }
+  async syncNow(req, res) { ok(res, await perf.syncNow(req.tenantId, req.user)); }
+
   // Reviews
   async listReviews(req, res) { ok(res, { reviews: await perf.getReviews(req.tenantId, req.user, req.query) }); }
   async createReview(req, res) {

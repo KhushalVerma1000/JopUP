@@ -97,6 +97,11 @@ export const kpiDefinition = pgTable("kpi_definition", {
   direction:      kpiDirectionEnum("direction").notNull().default("higher_better"),
 
   isActive:       text("is_active").default("true"),
+
+  // Where the numbers come from. 'auto' = computed from the pipeline by the
+  // metric catalogue (metric_key); 'manual' = a person records each reading.
+  source:         text("source").notNull().default("manual"),
+  metricKey:      text("metric_key"),
   ...timestamps,
 }, (t) => [
   index("kpi_def_team_idx").on(t.teamId),
@@ -113,12 +118,22 @@ export const kpiEntry = pgTable("kpi_entry", {
   id:           pkUuid(),
   kpiId:        uuid("kpi_id").notNull().references(() => kpiDefinition.id, { onDelete: "cascade" }),
   teamId:       uuid("team_id").notNull().references(() => team.id),
-  recordedBy:   uuid("recorded_by").notNull().references(() => user.id),
+  // NULL = written by the system (auto KPIs).
+  recordedBy:   uuid("recorded_by").references(() => user.id),
 
   value:        doublePrecision("value").notNull(),
   periodLabel:  text("period_label").notNull(),
   periodDate:   date("period_date").notNull(),
   notes:        text("notes"),
+
+  // 'manual' = typed by a person, 'auto' = computed, 'override' = a person
+  // replaced a computed value (computed_value keeps what the system had).
+  source:        text("source").notNull().default("manual"),
+  computedValue: doublePrecision("computed_value"),
+  overrideReason: text("override_reason"),
+  computedAt:    timestamp("computed_at", { withTimezone: true }),
+  // Set once the period has closed: the job never recomputes a locked reading.
+  lockedAt:      timestamp("locked_at", { withTimezone: true }),
 
   ...createdAt,
 }, (t) => [
@@ -176,6 +191,17 @@ export const goal = pgTable("goal", {
 
   dueDate:      date("due_date"),
   completedAt:  timestamp("completed_at", { withTimezone: true }),
+
+  // Metric goals: progress is computed from the pipeline over [start_date, due_date].
+  // assigned_to set = that person's numbers; null = the whole team's.
+  progressSource: text("progress_source").notNull().default("manual"),
+  metricKey:    text("metric_key"),
+  targetValue:  doublePrecision("target_value"),
+  startDate:    date("start_date"),
+  currentValue: doublePrecision("current_value"),
+  syncedAt:     timestamp("synced_at", { withTimezone: true }),
+  // Window closed and final value stored; never recomputed again.
+  finalizedAt:  timestamp("finalized_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => [
   index("goal_team_idx").on(t.teamId),
@@ -209,6 +235,14 @@ export const teamStrategy = pgTable("team_strategy", {
   description:  text("description"),
   objectives:   jsonb("objectives").notNull().default(sql`'[]'::jsonb`),
   status:       strategyStatusEnum("status").notNull().default("draft"),
+
+  // The window metric key results are measured over. Filled from `period`
+  // ("Q4 2026") when it can be read, otherwise supplied by the manager.
+  periodStart:  date("period_start"),
+  periodEnd:    date("period_end"),
+  // Period over; key-result values frozen into `objectives`.
+  finalizedAt:  timestamp("finalized_at", { withTimezone: true }),
+  retrospective: text("retrospective"),
 
   ...timestamps,
 }, (t) => [

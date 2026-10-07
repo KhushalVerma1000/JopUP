@@ -352,26 +352,35 @@ async function main() {
           const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - back);
           return { date: d.toISOString().slice(0, 10), label: d.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) };
         };
+        // Most KPIs fill themselves in from the pipeline (metricKey); a few things the
+        // pipeline can't see, like client satisfaction, are typed in by a manager.
         const KPI_SPECS = [
-          { name: "Placements per month", unit: "count", target: 6, direction: "higher_better" as const, category: "Recruitment", series: [3, 4, 4, 5, 5, 6] },
-          { name: "Avg. days to place", unit: "days", target: 25, direction: "lower_better" as const, category: "Recruitment", series: [34, 31, 30, 29, 31, 27] },
-          { name: "Client satisfaction", unit: "%", target: 90, direction: "higher_better" as const, category: "Client delivery", series: [88, 86, 84, 85, 82, 80] },
+          { name: "Placements per month", metricKey: "placements", unit: "count", target: 6, direction: "higher_better" as const, category: "Recruitment" },
+          { name: "Avg. days to place", metricKey: "avg_days_to_place", unit: "days", target: 25, direction: "lower_better" as const, category: "Recruitment" },
+          { name: "Stuck candidates", metricKey: "stuck_candidates", unit: "count", target: 3, direction: "lower_better" as const, category: "Pipeline health", frequency: "weekly" as const },
+          { name: "Client satisfaction", metricKey: null, unit: "%", target: 90, direction: "higher_better" as const, category: "Client delivery", series: [88, 86, 84, 85, 82, 80] },
         ];
         for (const ks of KPI_SPECS) {
           const [kpi] = await db.insert(schema.kpiDefinition).values({
             organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, name: ks.name, unit: ks.unit, category: ks.category,
-            frequency: "monthly", targetValue: ks.target, direction: ks.direction,
+            frequency: ks.frequency ?? "monthly", targetValue: ks.target, direction: ks.direction,
+            source: ks.metricKey ? "auto" : "manual", metricKey: ks.metricKey,
           }).returning();
-          for (let i = 0; i < ks.series.length; i++) {
-            const m = month(ks.series.length - 1 - i);
-            await db.insert(schema.kpiEntry).values({ kpiId: kpi.id, teamId: s.team.id, recordedBy: s.manager.id, value: ks.series[i], periodLabel: m.label, periodDate: m.date });
+          for (let i = 0; i < (ks.series?.length ?? 0); i++) {
+            const m = month(ks.series!.length - 1 - i);
+            await db.insert(schema.kpiEntry).values({ kpiId: kpi.id, teamId: s.team.id, recordedBy: s.manager.id, value: ks.series![i], periodLabel: m.label, periodDate: m.date });
           }
         }
 
         const dueIn = (d: number) => daysAhead(d).toISOString().slice(0, 10);
+        const startedAgo = (d: number) => daysAgo(d).toISOString().slice(0, 10);
         await db.insert(schema.goal).values([
-          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[0].id, title: "Place 10 candidates this quarter", progressPct: 60, dueDate: dueIn(30) },
+          // Metric goals: progress comes from the pipeline.
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[0].id, title: "Place 3 candidates this quarter", progressSource: "auto", metricKey: "placements", targetValue: 3, startDate: startedAgo(60), dueDate: dueIn(30) },
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, title: "Keep stuck candidates to 3 or fewer", progressSource: "auto", metricKey: "stuck_candidates", targetValue: 3, startDate: startedAgo(30), dueDate: dueIn(60) },
+          // Manual goals: no metric can see these.
           { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[0].id, title: "Clear the screening backlog", progressPct: 40, dueDate: dueIn(-4) },
+          { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[0].id, title: "Refresh the candidate database", progressPct: 20, dueDate: dueIn(45) },
           { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, title: "Add 3 new client accounts", progressPct: 33, dueDate: dueIn(60) },
           { organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, assignedTo: s.hrs[s.hrs.length - 1].id, title: "Complete onboarding checklist", progressPct: 100, status: "completed", completedAt: daysAgo(10), dueDate: dueIn(-12) },
         ]);
@@ -385,9 +394,23 @@ async function main() {
         await db.insert(schema.teamStrategy).values({
           organisationId: org.id, teamId: s.team.id, createdBy: s.manager.id, title: "Grow placements", period: "Q4 2026", status: "active",
           description: "Fill more positions, faster.",
-          objectives: [{ objective: "Double our placement rate", key_results: [{ kr: "Place 40 candidates", target: 40, current: 18 }, { kr: "Cut time-to-place to 20 days", target: 20, current: 27 }] }],
+          periodStart: "2026-10-01", periodEnd: "2026-12-31",
+          objectives: [
+            { objective: "Double our placement rate", key_results: [
+              { kr: "Place 12 candidates", target: 12, type: "metric", metric_key: "placements" },
+              { kr: "Cut time-to-place to 20 days", target: 20, type: "metric", metric_key: "avg_days_to_place" },
+            ] },
+            { objective: "Keep clients happy", key_results: [
+              { kr: "Client satisfaction at 90%", target: 90, type: "manual", current: 80 },
+            ] },
+          ],
         });
       }
+    }
+    // Fill in the automatic KPIs and goals now, rather than waiting for the hourly job.
+    if (spec.plan !== "starter") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      await require("./features/performance/metrics.service").syncOrg(org.id, { force: true });
     }
     console.log(`  ✓ ${spec.slug} (teams, staff, clients, positions, jobs, candidates, trackers, performance)`);
   }
@@ -400,6 +423,8 @@ async function main() {
   }
   console.log("\n✅ Demo seed complete.");
   await pool.end();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  await require("./utils/db").pool.end();
 }
 
 main().catch(async (err) => {
