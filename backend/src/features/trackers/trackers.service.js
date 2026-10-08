@@ -86,6 +86,8 @@ class TrackersService {
         candidatePhoneE164: candidate ? candidate.phoneNormalized : null,
         candidateLocation: candidate ? candidate.location : null,
         openPositionDesignation: position ? position.designation : null,
+        // Which client this tracker's position is for (null = internal hire).
+        clientId: position?.clientId || null,
         openPositionLocation: position ? position.location : null,
         clientName: position?.clientId ? clientById.get(position.clientId)?.companyName || null : null,
         currentStage: log ? stageById.get(log.stageId) || null : null,

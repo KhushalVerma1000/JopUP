@@ -10,6 +10,13 @@ router.use(requireAuth, requireModule('pipeline_tracker'));
 
 router.get('/', requirePermission('trackers', 'read'), controller.list.bind(controller));
 router.get('/summary', requirePermission('trackers', 'read'), controller.getSummary.bind(controller));
+// Bulk changes. Registered before the /:id routes. Dates ride on trackers:write;
+// a status change needs the same workflow_actions key as the single-candidate
+// route, picked from the validated body (resume uses the hold key, as it does singly).
+const BULK_ACTION_KEY = { advance: 'advance', block: 'block', hold: 'hold', resume: 'hold' };
+router.post('/bulk/dates', validate(schema.bulkDatesSchema), requirePermission('trackers', 'write'), controller.bulkDates.bind(controller));
+router.post('/bulk/status', validate(schema.bulkStatusSchema), (req, res, next) => requirePermission('workflow_actions', BULK_ACTION_KEY[req.body.action])(req, res, next), controller.bulkStatus.bind(controller));
+
 router.get('/:id', requirePermission('trackers', 'read'), validate(schema.trackerParamsSchema), controller.getById.bind(controller));
 router.get('/:id/history', requirePermission('trackers', 'read'), validate(schema.trackerParamsSchema), controller.getHistory.bind(controller));
 router.post('/', requirePermission('trackers', 'write'), validate(schema.createTrackerSchema), controller.create.bind(controller));

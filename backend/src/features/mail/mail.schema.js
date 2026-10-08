@@ -9,6 +9,9 @@ const composeSchema = z.object({
     trackerIds: z.array(z.string().uuid('Invalid tracker ID')).min(1, 'Pick at least one candidate').max(200),
     // The local day HR is mailing about, only used to word the subject when
     // the trackers span several days. YYYY-MM-DD.
+    // Mailing one specific client (uuid) or the internal hires (null). When given,
+    // every selected candidate must belong to it — see clientScope.js.
+    clientId: z.string().uuid('Invalid client ID').nullable().optional(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
   }),
 });

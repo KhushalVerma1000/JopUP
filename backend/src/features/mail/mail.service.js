@@ -3,6 +3,7 @@ const { and, eq, inArray } = require('drizzle-orm');
 const { NotFoundError, BadRequestError } = require('../../utils/errors');
 const { visibleTeamIds } = require('../../utils/teamScope');
 const trackersService = require('../trackers/trackers.service');
+const { assertSingleClient } = require('./clientScope');
 const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = require('../../services/email/templates/lineup');
 
 /**
@@ -10,7 +11,7 @@ const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = req
  * is stored until sending exists (email_message needs a sender identity).
  */
 class MailService {
-  async compose(orgId, user, { type, trackerIds }) {
+  async compose(orgId, user, { type, trackerIds, clientId }) {
     const ids = [...new Set(trackerIds)];
     const teamIds = visibleTeamIds(user);
     if (Array.isArray(teamIds) && teamIds.length === 0) throw new NotFoundError('Candidates not found');
@@ -28,7 +29,7 @@ class MailService {
       .from(schema.user).where(eq(schema.user.id, user.userId));
     const tz = org?.timezone || 'UTC';
     const senderName = [me?.firstName, me?.lastName].filter(Boolean).join(' ');
-    const trackers = await trackersService._enrichTrackers(rows);
+    const trackers = assertSingleClient(await trackersService._enrichTrackers(rows), clientId);
 
     if (type === 'interview_reminder') return this._interviewReminders(trackers, { tz, senderName, orgName: org?.name });
     return this._lineup(trackers, { tz, senderName, orgName: org?.name });

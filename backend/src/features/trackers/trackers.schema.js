@@ -94,7 +94,48 @@ const trackerParamsSchema = z.object({
   }),
 });
 
+// ── Bulk operations ─────────────────────────────────────────────────────────
+// HR selects rows (or "everything on screen") and changes them together. The
+// order of trackerIds matters: a staggered schedule follows it.
+const bulkIds = z.array(z.string().uuid('Invalid tracker ID')).min(1, 'Pick at least one candidate').max(200, 'Up to 200 candidates at a time');
+
+const bulkDatesSchema = z.object({
+  body: z.object({
+    trackerIds: bulkIds,
+    field: z.enum(['lineupDate', 'interviewDate']),
+    // same:    everyone gets `at`
+    // stagger: the first gets `start`, each next one `gapMinutes` later
+    // clear:   remove the date
+    mode: z.enum(['same', 'stagger', 'clear']),
+    at: z.string().datetime().optional(),
+    start: z.string().datetime().optional(),
+    gapMinutes: z.number().int().min(1, 'Gap must be at least 1 minute').max(480).optional(),
+    // Preview: compute and return what would change, write nothing.
+    dryRun: z.boolean().optional(),
+  }).superRefine((b, ctx) => {
+    if (b.mode === 'same' && !b.at) ctx.addIssue({ code: 'custom', path: ['at'], message: 'Choose a date and time' });
+    if (b.mode === 'stagger' && !b.start) ctx.addIssue({ code: 'custom', path: ['start'], message: 'Choose a start time' });
+    if (b.mode === 'stagger' && !b.gapMinutes) ctx.addIssue({ code: 'custom', path: ['gapMinutes'], message: 'Choose the gap between candidates' });
+  }),
+});
+
+const bulkStatusSchema = z.object({
+  body: z.object({
+    trackerIds: bulkIds,
+    action: z.enum(['advance', 'hold', 'resume', 'block']),
+    nextStageId: z.string().uuid('Invalid stage ID').optional(),
+    note: z.string().max(500).optional(),
+    reason: z.string().min(1, 'Reason is required').optional(),
+    dryRun: z.boolean().optional(),
+  }).superRefine((b, ctx) => {
+    if (b.action === 'advance' && !b.nextStageId) ctx.addIssue({ code: 'custom', path: ['nextStageId'], message: 'Choose a stage' });
+    if (b.action === 'block' && !b.reason) ctx.addIssue({ code: 'custom', path: ['reason'], message: 'Reason is required' });
+  }),
+});
+
 module.exports = {
+  bulkDatesSchema,
+  bulkStatusSchema,
   createTrackerSchema,
   advanceStageSchema,
   tagCandidatesSchema,

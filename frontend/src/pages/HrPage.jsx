@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, Copy, Check, Briefcase, MapPin, Tag, MessageCircle } from 'lucide-react';
+import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Copy, Check, Briefcase, MapPin, Tag, MessageCircle } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
@@ -15,6 +15,9 @@ import { PositionPicker } from '../components/hr/PositionPicker';
 import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
 import { LineupDateSheet } from '../components/hr/LineupDateSheet';
 import { MailComposeSheet } from '../components/hr/MailComposeSheet';
+import { BulkBar } from '../components/hr/BulkBar';
+import { BulkDatesSheet } from '../components/hr/BulkDatesSheet';
+import { BulkStatusSheet } from '../components/hr/BulkStatusSheet';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -80,6 +83,9 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const [pickedDay, setPickedDay] = useState('');
   const [datingLineup, setDatingLineup] = useState(null); // tracker whose lineup date is being set
   const [mail, setMail] = useState(null);                 // { type, trackerIds, date }
+  const [selecting, setSelecting] = useState(false);       // bulk selection mode
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulk, setBulk] = useState(null);                  // { kind: 'dates' | 'status', trackers } — a snapshot, so it survives the reload after Apply
 
   // Stage lists per template, to know each card's "next stage".
   useEffect(() => {
@@ -128,6 +134,21 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const canBlock = can(roles, 'workflow_actions', 'block');
   const canHold = can(roles, 'workflow_actions', 'hold');
   const canWrite = can(roles, 'trackers', 'write');
+
+  // Only people HR can still change are selectable, and only those on screen
+  // count: switching a filter quietly drops the ones that are no longer shown.
+  const selectable = visible.filter((t) => t.status === 'active' || t.status === 'on_hold');
+  const picked = selectable.filter((t) => selected.has(t.id));
+  const toggleOne = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => setSelected(picked.length === selectable.length ? new Set() : new Set(selectable.map((t) => t.id)));
+  const stopSelecting = () => { setSelecting(false); setSelected(new Set()); };
+  // Stage choices for a bulk move: the workflow most of the selection is on.
+  const bulkStageOptions = useMemo(() => {
+    const counts = new Map();
+    for (const t of (bulk?.trackers || [])) counts.set(t.workflowTemplateId, (counts.get(t.workflowTemplateId) || 0) + 1);
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    return top ? stagesByTemplate[top] || [] : [];
+  }, [bulk, stagesByTemplate]);
 
   function nextStageOf(t) {
     const list = stagesByTemplate[t.workflowTemplateId] || [];
@@ -197,6 +218,11 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           <option value="none">Not tagged to a position</option>
           {filterPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
         </NativeSelect>
+        {(canWrite || canAdvance || canHold || canBlock) && selectable.length > 0 && (
+          <Button type="button" variant={selecting ? 'default' : 'outline'} size="sm" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+            <ListChecks /> {selecting ? 'Selecting' : 'Select'}
+          </Button>
+        )}
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Chips className="min-w-0 flex-1"
@@ -230,8 +256,11 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           const next = nextStageOf(t);
           const busy = busyId === t.id;
           return (
-            <Card key={t.id} className="gap-3 p-4">
+            <Card key={t.id} className={`gap-3 p-4 ${selecting && selected.has(t.id) && (t.status === 'active' || t.status === 'on_hold') ? 'ring-2 ring-primary' : ''}`}>
               <div className="flex items-start gap-3">
+                {selecting && (t.status === 'active' || t.status === 'on_hold') && (
+                  <input type="checkbox" className="mt-2 size-5 shrink-0 accent-primary" checked={selected.has(t.id)} onChange={() => toggleOne(t.id)} aria-label={`Select ${t.candidateName}`} />
+                )}
                 <Avatar name={t.candidateName} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-semibold">{t.candidateName}</div>
@@ -303,7 +332,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
         })}
       </div>
 
-      {canWrite && myTeams.length > 0 && <Fab icon={Plus} onClick={() => setAddOpen(true)}>Add candidate</Fab>}
+      {canWrite && myTeams.length > 0 && !selecting && <Fab icon={Plus} onClick={() => setAddOpen(true)}>Add candidate</Fab>}
 
       <Sheet open={!!rejecting} onClose={() => setRejecting(null)} title={`Reject ${rejecting?.candidateName || ''}?`}
         description="They'll move to Closed and drop out of the active pipeline. This can't be undone from here.">
@@ -318,6 +347,25 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           </div>
         </form>
       </Sheet>
+
+      {selecting && (
+        <BulkBar count={picked.length} total={selectable.length} onToggleAll={toggleAll} onCancel={stopSelecting}
+          canDates={canWrite} canStatus={canAdvance || canHold || canBlock}
+          onDates={() => setBulk({ kind: 'dates', trackers: picked })} onStatus={() => setBulk({ kind: 'status', trackers: picked })} />
+      )}
+
+      <BulkDatesSheet
+        trackers={bulk?.kind === 'dates' ? bulk.trackers : null}
+        onClose={() => setBulk(null)}
+        onApplied={() => { trackers.reload(); stopSelecting(); }}
+      />
+      <BulkStatusSheet
+        trackers={bulk?.kind === 'status' ? bulk.trackers : null}
+        allowed={{ advance: canAdvance, hold: canHold, resume: canHold, block: canBlock }}
+        stageOptions={bulkStageOptions}
+        onClose={() => setBulk(null)}
+        onApplied={() => { trackers.reload(); stopSelecting(); }}
+      />
 
       <LineupDateSheet
         tracker={datingLineup}

@@ -1,4 +1,5 @@
 const trackersService = require('./trackers.service');
+const bulk = require('./trackers.bulk.service');
 const { visibleTeamIds, canSeeTeam } = require('../../utils/teamScope');
 const { ForbiddenError } = require('../../utils/errors');
 
@@ -83,6 +84,16 @@ class TrackersController {
     await trackersService._assertTracker(req.tenantId, req.params.id, req.user);
     const tracker = await trackersService.resumeTracker(req.tenantId, req.params.id, req.user?.userId);
     res.json({ status: 'success', data: { tracker } });
+  }
+
+  async bulkDates(req, res) {
+    const result = await bulk.setDates(req.tenantId, req.user, req.body);
+    res.json({ status: 'success', data: result });
+  }
+
+  async bulkStatus(req, res) {
+    const result = await bulk.setStatus(req.tenantId, req.user, req.body);
+    res.json({ status: 'success', data: result });
   }
 
   async getHistory(req, res) {
