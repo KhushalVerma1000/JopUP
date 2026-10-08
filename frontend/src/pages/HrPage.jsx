@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, Copy, Check, Briefcase, MapPin, Tag } from 'lucide-react';
+import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, Copy, Check, Briefcase, MapPin, Tag, MessageCircle } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
@@ -7,10 +7,14 @@ import { useHrScope } from '../hooks/useHrScope';
 import { apiFetch, ApiError } from '../lib/api';
 import { can } from '../lib/roles';
 import { buildUpdateText, copyStageLabel, copyText } from '../lib/clipboard';
+import { whatsappUrl, whatsappProps } from '../lib/whatsapp';
+import { dayKey, resolveDay, lineupLabel } from '../lib/lineupDay';
 import { PageHeader, Chips, ErrorNote, Loading, EmptyState, Sheet, Avatar, StatusPill, Field, Notice, Fab, RoundAction } from '@/components/common';
 import { PositionsTab } from '../components/hr/PositionsTab';
 import { PositionPicker } from '../components/hr/PositionPicker';
 import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
+import { LineupDateSheet } from '../components/hr/LineupDateSheet';
+import { MailComposeSheet } from '../components/hr/MailComposeSheet';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +76,10 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const [updating, setUpdating] = useState(null);   // tracker being moved (stage-update sheet)
   const [tagging, setTagging] = useState(null);     // tracker being (re)tagged to a position
   const [copiedId, setCopiedId] = useState(null);
+  const [dayChoice, setDayChoice] = useState('any');   // 'any' | 'today' | 'tomorrow' | 'YYYY-MM-DD'
+  const [pickedDay, setPickedDay] = useState('');
+  const [datingLineup, setDatingLineup] = useState(null); // tracker whose lineup date is being set
+  const [mail, setMail] = useState(null);                 // { type, trackerIds, date }
 
   // Stage lists per template, to know each card's "next stage".
   useEffect(() => {
@@ -87,8 +95,11 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
 
   const all = (trackers.data?.trackers || []).filter((t) => myTeamIds.includes(t.teamId));
   const byScope = scopeKey === 'mine' ? all.filter((t) => t.assignedHr === user.id) : all;
-  const scoped = positionFilter === 'none' ? byScope.filter((t) => !t.openPositionId)
+  const byPosition = positionFilter === 'none' ? byScope.filter((t) => !t.openPositionId)
     : positionFilter ? byScope.filter((t) => t.openPositionId === positionFilter) : byScope;
+  // Lineup day: HR's local calendar day, compared on the lineup date HR set.
+  const wantedDay = dayChoice === 'pick' ? pickedDay : resolveDay(dayChoice);
+  const scoped = wantedDay ? byPosition.filter((t) => dayKey(t.lineupDate) === wantedDay) : byPosition;
 
   const active = scoped.filter((t) => t.status === 'active');
   const held = scoped.filter((t) => t.status === 'on_hold');
@@ -187,6 +198,20 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           {filterPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
         </NativeSelect>
       </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Chips className="min-w-0 flex-1"
+          items={[{ key: 'any', label: 'Any day' }, { key: 'today', label: 'Lineup today' }, { key: 'tomorrow', label: 'Lineup tomorrow' }, { key: 'pick', label: wantedDay && dayChoice === 'pick' ? lineupLabel(`${wantedDay}T12:00:00`) : 'Pick a date' }]}
+          value={dayChoice} onChange={(k) => { setDayChoice(k); setFilter('all'); }} />
+        {dayChoice === 'pick' && <Input type="date" aria-label="Lineup date" className="w-auto" value={pickedDay} onChange={(e) => setPickedDay(e.target.value)} />}
+      </div>
+      {wantedDay && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">{active.length} lined up on {lineupLabel(`${wantedDay}T12:00:00`)}</p>
+          {active.length > 0 && (
+            <Button size="sm" onClick={() => setMail({ type: 'lineup', trackerIds: active.map((t) => t.id), date: wantedDay })}><Mail /> Email lineup ({active.length})</Button>
+          )}
+        </div>
+      )}
       <Chips items={chips} value={filter} onChange={setFilter} className="mb-4" />
 
       <ErrorNote onRetry={trackers.reload}>{trackers.error}</ErrorNote>
@@ -195,8 +220,8 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
 
       {trackers.data && visible.length === 0 && (
         <EmptyState
-          title={filter === 'all' ? (scopeKey === 'mine' ? 'No candidates assigned to you' : 'No candidates in the pipeline yet') : 'No candidates at this stage'}
-          body={filter !== 'all' || !canWrite ? undefined : scopeKey === 'mine' ? 'Add a candidate to start tracking them, or switch to Whole team to see everyone’s.' : 'Add a candidate to start tracking them through the stages.'}
+          title={wantedDay && filter === 'all' ? 'Nobody is lined up on that day' : filter === 'all' ? (scopeKey === 'mine' ? 'No candidates assigned to you' : 'No candidates in the pipeline yet') : 'No candidates at this stage'}
+          body={wantedDay ? 'Set a lineup date on a candidate card, or pick another day.' : filter !== 'all' || !canWrite ? undefined : scopeKey === 'mine' ? 'Add a candidate to start tracking them, or switch to Whole team to see everyone’s.' : 'Add a candidate to start tracking them through the stages.'}
         />
       )}
 
@@ -217,6 +242,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
                 <RoundAction onClick={() => copyCard(t)} aria-label={copiedId === t.id ? 'Copied' : `Copy details for ${t.candidateName}`}>
                   {copiedId === t.id ? <Check className="size-5 text-primary" aria-hidden /> : <Copy className="size-5" aria-hidden />}
                 </RoundAction>
+                {whatsappUrl(t.candidatePhoneE164, t.candidatePhone) && <RoundAction href={whatsappUrl(t.candidatePhoneE164, t.candidatePhone)} {...whatsappProps} aria-label={`WhatsApp ${t.candidateName}`}><MessageCircle className="size-5" aria-hidden /></RoundAction>}
                 {t.candidatePhone && <RoundAction tone="accent" href={`tel:${t.candidatePhone}`} aria-label={`Call ${t.candidateName}`}><Phone className="size-5" aria-hidden /></RoundAction>}
               </div>
 
@@ -237,8 +263,26 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
                 {t.status === 'active' && t.currentStageNote && <span className="inline-flex items-center rounded-full border bg-card px-2 py-0.5 text-xs font-medium text-foreground">{t.currentStageNote}</span>}
                 {t.status !== 'active' && <StatusPill status={t.status} />}
                 {t.currentStageEnteredAt && t.status === 'active' && <span>{relativeTime(t.currentStageEnteredAt).replace(' ago', '')} in stage</span>}
-                {t.interviewDate && t.status === 'active' && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />{shortDate(t.interviewDate)}</span>}
+                {t.interviewDate && t.status === 'active' && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />Interview {shortDate(t.interviewDate)}</span>}
               </div>
+
+              {t.status === 'active' && (canWrite || t.interviewDate) && (
+                <div className="flex flex-wrap gap-2">
+                  {canWrite && (
+                    <button type="button" disabled={busy} onClick={() => setDatingLineup(t)}
+                      className={`inline-flex min-h-10 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors hover:bg-accent ${t.lineupDate ? 'bg-card' : 'border-dashed text-muted-foreground'}`}>
+                      {t.lineupDate ? <CalendarClock className="size-4 text-muted-foreground" aria-hidden /> : <CalendarPlus className="size-4" aria-hidden />}
+                      {t.lineupDate ? <>Lineup {lineupLabel(t.lineupDate)}</> : 'Set lineup date'}
+                    </button>
+                  )}
+                  {t.interviewDate && (
+                    <button type="button" onClick={() => setMail({ type: 'interview_reminder', trackerIds: [t.id] })}
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-md border bg-card px-3 text-sm transition-colors hover:bg-accent">
+                      <Mail className="size-4 text-muted-foreground" aria-hidden /> Remind
+                    </button>
+                  )}
+                </div>
+              )}
 
               {t.status === 'active' && (
                 <div className="flex gap-2">
@@ -274,6 +318,24 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           </div>
         </form>
       </Sheet>
+
+      <LineupDateSheet
+        tracker={datingLineup}
+        onClose={() => setDatingLineup(null)}
+        onSave={async (iso) => {
+          await apiFetch(`/api/v1/trackers/${datingLineup.id}`, { method: 'PATCH', body: { lineupDate: iso } });
+          await trackers.reload();
+        }}
+      />
+
+      <MailComposeSheet
+        open={!!mail}
+        onClose={() => setMail(null)}
+        type={mail?.type || 'lineup'}
+        trackerIds={mail?.trackerIds || []}
+        date={mail?.date}
+        whatsappFor={(m) => (mail?.type === 'interview_reminder' ? whatsappUrl(m.candidatePhoneE164, m.candidatePhone, m.whatsappText) : null)}
+      />
 
       <StageUpdateSheet
         tracker={updating}
@@ -465,6 +527,7 @@ function CandidatesTab({ scope }) {
                 <div className="truncate font-semibold">{fullName(c)}</div>
                 <div className="truncate text-xs text-muted-foreground">{c.location || 'Location not set'} · {String(c.source).replace(/_/g, ' ')}</div>
               </div>
+              {whatsappUrl(c.phoneNormalized, c.phone) && <RoundAction href={whatsappUrl(c.phoneNormalized, c.phone)} {...whatsappProps} aria-label={`WhatsApp ${fullName(c)}`}><MessageCircle className="size-5" aria-hidden /></RoundAction>}
               {c.phone && <RoundAction tone="accent" href={`tel:${c.phone}`} aria-label={`Call ${fullName(c)}`}><Phone className="size-5" aria-hidden /></RoundAction>}
               {c.email && <RoundAction href={`mailto:${c.email}`} aria-label={`Email ${fullName(c)}`}><Mail className="size-5" aria-hidden /></RoundAction>}
             </div>

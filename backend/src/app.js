@@ -20,6 +20,7 @@ const openPositionsRoutes = require('./features/open-positions/open-positions.ro
 const applicationsRoutes = require('./features/applications/applications.routes');
 const trackersRoutes = require('./features/trackers/trackers.routes');
 const dailyTrackersRoutes = require('./features/daily-trackers/daily-trackers.routes');
+const mailRoutes = require('./features/mail/mail.routes');
 const performanceRoutes = require('./features/performance/performance.routes');
 const analyticsRoutes = require('./features/analytics/analytics.routes');
 const creditsRoutes = require('./features/credits/credits.routes');
@@ -61,6 +62,7 @@ app.use('/api/v1/open-positions', openPositionsRoutes);
 app.use('/api/v1/applications', applicationsRoutes);
 app.use('/api/v1/trackers', trackersRoutes);
 app.use('/api/v1/daily-trackers', dailyTrackersRoutes);
+app.use('/api/v1/mail', mailRoutes);
 app.use('/api/v1/performance', performanceRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/credits', creditsRoutes);

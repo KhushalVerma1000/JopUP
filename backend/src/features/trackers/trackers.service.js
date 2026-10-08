@@ -47,7 +47,7 @@ class TrackersService {
         and(inArray(schema.candidateTrackerStageLog.trackerId, trackerIds), isNull(schema.candidateTrackerStageLog.exitedAt))
       ),
       candidateIds.length
-        ? db.select({ id: schema.candidate.id, firstName: schema.candidate.firstName, lastName: schema.candidate.lastName, phone: schema.candidate.phone, location: schema.candidate.location })
+        ? db.select({ id: schema.candidate.id, firstName: schema.candidate.firstName, lastName: schema.candidate.lastName, phone: schema.candidate.phone, phoneNormalized: schema.candidate.phoneNormalized, location: schema.candidate.location })
             .from(schema.candidate).where(inArray(schema.candidate.id, candidateIds))
         : [],
       openPositionIds.length
@@ -82,6 +82,8 @@ class TrackersService {
         ...tracker,
         candidateName: candidate ? [candidate.firstName, candidate.lastName].filter(Boolean).join(' ') : null,
         candidatePhone: candidate ? candidate.phone : null,
+        // E.164 — what wa.me needs; null for older rows that never got normalised.
+        candidatePhoneE164: candidate ? candidate.phoneNormalized : null,
         candidateLocation: candidate ? candidate.location : null,
         openPositionDesignation: position ? position.designation : null,
         openPositionLocation: position ? position.location : null,
