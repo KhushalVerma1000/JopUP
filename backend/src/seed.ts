@@ -79,6 +79,7 @@ const ROLES = [
       applications: ["read", "write"],
       open_positions: ["read", "write", "delete"],
       trackers: ["read", "write"],
+      tracker_templates: ["read", "write"],
       daily_trackers: ["read", "write", "send"],
       kpi: ["read", "write"],
       // org_admin could open the KPI screens but got 403 on goals/reviews —
@@ -106,6 +107,7 @@ const ROLES = [
       applications: ["read", "write"],
       open_positions: ["read", "write"],
       trackers: ["read", "write"],
+      tracker_templates: ["read", "write"],
       daily_trackers: ["read", "write", "send"],
       kpi: ["read", "write"],
       performance_reviews: ["read", "write"],
@@ -129,6 +131,8 @@ const ROLES = [
       applications: ["read", "write"],
       open_positions: ["read", "write"],
       trackers: ["read", "write"],
+      // HR picks a template and toggles columns per send; defining templates is a manager decision.
+      tracker_templates: ["read"],
       // HR can see and send the day's tracker; changing who gets it and when is a manager decision.
       daily_trackers: ["read", "send"],
       kpi: ["read"],

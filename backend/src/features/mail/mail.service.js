@@ -4,6 +4,9 @@ const { NotFoundError, BadRequestError } = require('../../utils/errors');
 const { visibleTeamIds } = require('../../utils/teamScope');
 const trackersService = require('../trackers/trackers.service');
 const { assertSingleClient } = require('./clientScope');
+const { renderTrackerMail } = require('../../services/email/templates/trackerTable');
+const templatesService = require('./templates.service');
+const { DEFAULT_COLUMNS, labelFor, resolveValue } = require('./columns');
 const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = require('../../services/email/templates/lineup');
 
 /**
@@ -11,7 +14,7 @@ const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = req
  * is stored until sending exists (email_message needs a sender identity).
  */
 class MailService {
-  async compose(orgId, user, { type, trackerIds, clientId }) {
+  async compose(orgId, user, { type, trackerIds, clientId, templateId, columns }) {
     const ids = [...new Set(trackerIds)];
     const teamIds = visibleTeamIds(user);
     if (Array.isArray(teamIds) && teamIds.length === 0) throw new NotFoundError('Candidates not found');
@@ -31,6 +34,7 @@ class MailService {
     const senderName = [me?.firstName, me?.lastName].filter(Boolean).join(' ');
     const trackers = assertSingleClient(await trackersService._enrichTrackers(rows), clientId);
 
+    if (type === 'tracker') return this._tracker(orgId, user, trackers, { tz, senderName, orgName: org?.name, templateId, columns });
     if (type === 'interview_reminder') return this._interviewReminders(trackers, { tz, senderName, orgName: org?.name });
     return this._lineup(trackers, { tz, senderName, orgName: org?.name });
   }
@@ -71,6 +75,46 @@ class MailService {
       };
     });
     return { type: 'lineup', messages };
+  }
+
+  /**
+   * Tracker mail: the chosen columns as one Excel-style table, one mail per
+   * client. Columns come from this send's toggles, else the template, else the
+   * defaults. A candidate from another client can never land in a client's mail:
+   * trackers are grouped by client here, and assertSingleClient already refused
+   * a mixed list when the caller named the client.
+   */
+  async _tracker(orgId, user, trackers, ctx) {
+    const live = trackers.filter((t) => ['active', 'on_hold'].includes(t.status));
+    if (live.length === 0) throw new BadRequestError('None of those candidates are in the active pipeline');
+
+    let spec = ctx.columns;
+    let template = null;
+    if (!spec && ctx.templateId) {
+      template = await templatesService.get(orgId, user, ctx.templateId);
+      spec = template.columns;
+    }
+    const columns = (spec && spec.length ? spec : DEFAULT_COLUMNS).map((c) => ({ key: c.key, label: labelFor(c.key, c.label) }));
+
+    const cands = await db.select({ id: schema.candidate.id, email: schema.candidate.email, customFields: schema.candidate.customFields })
+      .from(schema.candidate).where(inArray(schema.candidate.id, [...new Set(live.map((t) => t.candidateId))]));
+    const candById = new Map(cands.map((c) => [c.id, c]));
+
+    const byClient = new Map();
+    for (const t of live) {
+      const key = t.clientName || '';
+      if (!byClient.has(key)) byClient.set(key, []);
+      byClient.get(key).push(t);
+    }
+
+    const messages = [...byClient.entries()].map(([clientName, list]) => {
+      const sorted = [...list].sort((a, b) => new Date(a.lineupDate || a.interviewDate || 0) - new Date(b.lineupDate || b.interviewDate || 0));
+      const rows = sorted.map((t) => columns.map((c) => resolveValue(c.key, t, { tz: ctx.tz, candidate: candById.get(t.candidateId) })));
+      const title = `${template?.name || 'Tracker'}${clientName ? ` — ${clientName}` : ''}, ${formatDay(new Date(), ctx.tz)}`;
+      const mail = renderTrackerMail({ clientName: clientName || null, title, columns, rows, senderName: ctx.senderName, orgName: ctx.orgName });
+      return { clientName: clientName || null, candidateCount: list.length, columns: columns.map((c) => c.key), ...mail };
+    });
+    return { type: 'tracker', templateId: template?.id || null, messages };
   }
 
   async _interviewReminders(trackers, ctx) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Copy, Check, Briefcase, MapPin, Tag, MessageCircle } from 'lucide-react';
+import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Table2, Copy, Check, Briefcase, MapPin, Tag, MessageCircle } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
@@ -15,6 +15,7 @@ import { PositionPicker } from '../components/hr/PositionPicker';
 import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
 import { LineupDateSheet } from '../components/hr/LineupDateSheet';
 import { MailComposeSheet } from '../components/hr/MailComposeSheet';
+import { TrackerMailSheet } from '../components/hr/TrackerMailSheet';
 import { BulkBar } from '../components/hr/BulkBar';
 import { BulkDatesSheet } from '../components/hr/BulkDatesSheet';
 import { BulkStatusSheet } from '../components/hr/BulkStatusSheet';
@@ -82,6 +83,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const [dayChoice, setDayChoice] = useState('any');   // 'any' | 'today' | 'tomorrow' | 'YYYY-MM-DD'
   const [pickedDay, setPickedDay] = useState('');
   const [datingLineup, setDatingLineup] = useState(null); // tracker whose lineup date is being set
+  const [trackerMail, setTrackerMail] = useState(null);       // tracker ids for the client tracker mail
   const [mail, setMail] = useState(null);                 // { type, trackerIds, date }
   const [selecting, setSelecting] = useState(false);       // bulk selection mode
   const [selected, setSelected] = useState(() => new Set());
@@ -134,6 +136,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const canBlock = can(roles, 'workflow_actions', 'block');
   const canHold = can(roles, 'workflow_actions', 'hold');
   const canWrite = can(roles, 'trackers', 'write');
+  const canTemplates = can(roles, 'tracker_templates', 'read');
 
   // Only people HR can still change are selectable, and only those on screen
   // count: switching a filter quietly drops the ones that are no longer shown.
@@ -218,6 +221,11 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           <option value="none">Not tagged to a position</option>
           {filterPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
         </NativeSelect>
+        {canTemplates && active.length > 0 && (
+          <Button type="button" variant="outline" size="sm" onClick={() => setTrackerMail((selecting && selected.size ? [...selected] : active.map((t) => t.id)))}>
+            <Table2 /> Email tracker ({selecting && selected.size ? selected.size : active.length})
+          </Button>
+        )}
         {(canWrite || canAdvance || canHold || canBlock) && selectable.length > 0 && (
           <Button type="button" variant={selecting ? 'default' : 'outline'} size="sm" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
             <ListChecks /> {selecting ? 'Selecting' : 'Select'}
@@ -375,6 +383,8 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           await trackers.reload();
         }}
       />
+
+      <TrackerMailSheet open={!!trackerMail} onClose={() => setTrackerMail(null)} trackerIds={trackerMail || []} />
 
       <MailComposeSheet
         open={!!mail}

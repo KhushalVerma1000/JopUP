@@ -10,11 +10,13 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { TemplatesTab } from '../components/managerial/TemplatesTab';
 
 const TABS = [
   { key: 'settings', label: 'Org settings' },
   { key: 'teams', label: 'Teams' },
   { key: 'invitations', label: 'Invitations' },
+  { key: 'templates', label: 'Tracker templates' },
 ];
 
 export function ManagerialPage() {
@@ -48,6 +50,7 @@ export function ManagerialPage() {
       {tab === 'settings' && <OrgSettingsTab />}
       {tab === 'teams' && <TeamsTab />}
       {tab === 'invitations' && <InvitationsTab />}
+      {tab === 'templates' && <TemplatesTab />}
     </AppLayout>
   );
 }
