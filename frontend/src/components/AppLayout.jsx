@@ -1,10 +1,11 @@
-import { NavLink, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target,
+  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { primaryRoleLabel } from '../lib/roles';
-import { Avatar } from '@/components/common';
+import { Avatar, Sheet } from '@/components/common';
 import { cn } from '@/lib/utils';
 
 // Each role gets its own short nav (max 5 so it fits a phone tab bar).
@@ -33,6 +34,15 @@ export function AppLayout({ children, wide = false }) {
   const { user, logout } = auth;
   const items = NAV_ITEMS.filter((i) => i.visibleTo(auth));
   const name = `${user.firstName} ${user.lastName}`;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const { pathname } = useLocation();
+
+  // Phone bar holds 5 slots. If everything fits, show it all; otherwise 4 screens + More.
+  const tabItems = items.filter((i) => i.tabBar !== false);
+  const fitsBar = items.length <= 5;
+  const barItems = fitsBar ? items : tabItems.slice(0, 4);
+  const moreItems = fitsBar ? [] : items.filter((i) => !barItems.includes(i));
+  const moreActive = moreItems.some((i) => (i.end ? pathname === i.to : pathname === i.to || pathname.startsWith(`${i.to}/`)));
 
   return (
     <div className="min-h-svh bg-muted/40">
@@ -91,36 +101,18 @@ export function AppLayout({ children, wide = false }) {
         <header className="pt-safe sticky top-0 z-30 border-b bg-background/95 backdrop-blur md:hidden">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4">
             <Link to={auth.homePath} className="text-lg font-bold tracking-tight text-primary">JopUP</Link>
-            <div className="flex items-center gap-1">
-              {/* Screens that don't fit the 5-slot tab bar stay one tap away on phones. */}
-              {items.filter((i) => i.tabBar === false).map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink key={item.to} to={item.to} aria-label={item.label} className={({ isActive }) => cn('flex size-10 items-center justify-center rounded-md hover:bg-accent', isActive ? 'text-primary' : 'text-muted-foreground')}>
-                    <Icon className="size-5" aria-hidden />
-                  </NavLink>
-                );
-              })}
-              <Avatar name={name} className="ml-1 size-9" />
-              <button
-                type="button"
-                onClick={logout}
-                aria-label="Sign out"
-                className="flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-              >
-                <LogOut className="size-5" />
-              </button>
-            </div>
+            <Avatar name={name} className="size-9" />
           </div>
         </header>
 
         <main className={cn('mx-auto px-4 pb-28 pt-5 md:px-8 md:pb-10 md:pt-8', wide ? 'max-w-7xl' : 'max-w-5xl')}>{children}</main>
       </div>
 
-      {/* Phone tab bar — thumb reach, safe-area aware. Hidden on md+ where the sidebar shows. */}
+      {/* Phone tab bar — thumb reach, safe-area aware. Never drops a screen: whatever
+          doesn't fit goes under "More" instead of silently disappearing. */}
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur md:hidden" aria-label="Primary">
         <ul className="mx-auto flex max-w-lg">
-          {items.filter((i) => i.tabBar !== false).slice(0, 5).map((item) => {
+          {barItems.map((item) => {
             const Icon = item.icon;
             return (
               <li key={item.to} className="flex-1">
@@ -129,7 +121,7 @@ export function AppLayout({ children, wide = false }) {
                   end={item.end}
                   className={({ isActive }) =>
                     cn(
-                      'flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors',
+                      'flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors active:bg-accent/60',
                       isActive ? 'text-primary' : 'text-muted-foreground'
                     )
                   }
@@ -140,8 +132,64 @@ export function AppLayout({ children, wide = false }) {
               </li>
             );
           })}
+          {moreItems.length > 0 && (
+            <li className="flex-1">
+              <button
+                type="button"
+                onClick={() => setMoreOpen(true)}
+                aria-haspopup="dialog"
+                className={cn(
+                  'flex min-h-14 w-full flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors active:bg-accent/60',
+                  moreActive ? 'text-primary' : 'text-muted-foreground'
+                )}
+              >
+                <Menu className="size-5" aria-hidden />
+                More
+              </button>
+            </li>
+          )}
         </ul>
       </nav>
+
+      <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
+        <ul className="flex flex-col gap-1">
+          {moreItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setMoreOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex min-h-12 items-center gap-3 rounded-lg px-3 text-base font-medium transition-colors active:bg-accent',
+                      isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'
+                    )
+                  }
+                >
+                  <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+                  {item.sideLabel || item.label}
+                </NavLink>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="mt-4 flex items-center gap-3 rounded-lg border bg-muted/40 p-3">
+          <Avatar name={name} className="size-10" />
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-sm font-medium">{name}</div>
+            <div className="truncate text-xs text-muted-foreground">{primaryRoleLabel(auth)}</div>
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="flex min-h-10 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors active:bg-accent"
+          >
+            <LogOut className="size-4" aria-hidden /> Sign out
+          </button>
+        </div>
+      </Sheet>
     </div>
   );
 }

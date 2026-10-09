@@ -78,7 +78,7 @@ export function TrackerMailSheet({ open, onClose, trackerIds }) {
   const clients = state.messages.map((m, i) => ({ key: String(i), label: m.clientName || 'No client' }));
 
   return (
-    <Sheet open={open} onClose={onClose} title="Tracker mail"
+    <Sheet open={open} onClose={onClose} size="xl" title="Tracker mail"
       description="Pick a template, adjust the columns for this send if you need to, then copy. Nothing is sent from here.">
       <div className="flex flex-col gap-4">
         <ErrorNote>{meta.error}</ErrorNote>

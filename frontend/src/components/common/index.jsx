@@ -121,7 +121,9 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
  * back to whatever opened it. Focus lands on the first `autoFocus` field if
  * there is one, otherwise on the dialog itself.
  */
-export function Sheet({ open, onClose, title, description, children }) {
+const SHEET_WIDTH = { md: 'md:max-w-md', lg: 'md:max-w-2xl', xl: 'md:max-w-5xl' };
+
+export function Sheet({ open, onClose, title, description, size = 'md', children }) {
   const panelRef = useRef(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
@@ -183,14 +185,19 @@ export function Sheet({ open, onClose, title, description, children }) {
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className="pb-safe relative max-h-[90svh] w-full overflow-y-auto rounded-t-2xl border bg-background p-5 shadow-xl outline-none md:max-w-md md:rounded-xl"
+        className={cn('relative flex max-h-[92svh] w-full flex-col rounded-t-2xl border bg-background shadow-xl outline-none md:max-h-[88svh] md:rounded-xl', SHEET_WIDTH[size] || SHEET_WIDTH.md)}
       >
-        <div className="mb-4 flex items-center justify-between gap-2">
+        {/* Grab bar: tells a phone user this is a sheet they can dismiss. */}
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30 md:hidden" aria-hidden />
+        {/* Title stays put while a long form scrolls underneath. */}
+        <div className="flex shrink-0 items-center justify-between gap-2 px-5 pb-3 pt-3 md:pt-5">
           <h2 id={titleId} className="min-w-0 text-lg font-semibold">{title}</h2>
           <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X /></Button>
         </div>
-        {description && <p id={descId} className="-mt-2 mb-4 text-sm text-muted-foreground">{description}</p>}
-        {children}
+        <div className="pb-safe min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5">
+          {description && <p id={descId} className="mb-4 text-sm text-muted-foreground">{description}</p>}
+          {children}
+        </div>
       </div>
     </div>
   );

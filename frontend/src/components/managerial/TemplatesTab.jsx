@@ -80,7 +80,7 @@ export function TemplatesTab() {
         ))}
       </div>
 
-      <Sheet open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Edit template' : 'New template'} description="The order here is the order of the columns in the email.">
+      <Sheet open={!!edit} onClose={() => setEdit(null)} size="lg" title={edit?.id ? 'Edit template' : 'New template'} description="The order here is the order of the columns in the email.">
         {edit && (
           <div className="flex flex-col gap-4">
             <ErrorNote>{error}</ErrorNote>
