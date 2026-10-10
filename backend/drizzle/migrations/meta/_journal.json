@@ -29,6 +29,13 @@
       "when": 1791278752943,
       "tag": "0003_auto_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0005_client_mail_profiles",
+      "breakpoints": true
     }
   ]
 }

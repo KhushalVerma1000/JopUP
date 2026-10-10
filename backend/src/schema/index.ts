@@ -201,6 +201,8 @@ export {
 export {
   emailSenderIdentity,
   clientSpoc,
+  clientLocation,
+  clientMailLog,
   clientInternalContact,
   trackerTemplate,
   tracker,
@@ -210,6 +212,7 @@ export {
   emailAttachment,
   emailMessageReference,
   spocTypeEnum,
+  spocMailRoleEnum,
   spocStatusEnum,
   internalContactRoleEnum,
   trackerTypeEnum,

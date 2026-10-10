@@ -117,6 +117,9 @@ export const spocTypeEnum = pgEnum("spoc_type", [
   "other",
 ]);
 
+// Whether a contact is addressed To or CC when a tracker mail is built.
+export const spocMailRoleEnum = pgEnum("spoc_mail_role", ["to", "cc"]);
+
 export const spocStatusEnum = pgEnum("spoc_status", [
   "active",
   "inactive",
@@ -231,6 +234,10 @@ export const clientSpoc = pgTable("client_spoc", {
   isPrimary:                 boolean("is_primary").notNull().default(false),
   status:                    spocStatusEnum("status").notNull().default("active"),
   receivesTrackersByDefault: boolean("receives_trackers_by_default").notNull().default(true),
+  // Tied to one client location (store/branch). NULL = a client-wide contact,
+  // used when a candidate's location matches no location of the client.
+  locationId:                uuid("location_id").references((): any => clientLocation.id, { onDelete: "set null" }),
+  mailRole:                  spocMailRoleEnum("mail_role").notNull().default("to"),
 
   notes:                     text("notes"),
   customFields:              jsonb("custom_fields").default(sql`'{}'::jsonb`),
@@ -241,6 +248,7 @@ export const clientSpoc = pgTable("client_spoc", {
   index("spoc_client_idx").on(t.clientId),
   index("spoc_type_idx").on(t.clientId, t.spocType),
   index("spoc_status_idx").on(t.status),
+  index("spoc_location_idx").on(t.locationId),
 ]);
 
 /**
@@ -296,6 +304,55 @@ export const trackerTemplate = pgTable("tracker_template", {
   index("ttpl_org_idx").on(t.organisationId),
   index("ttpl_team_idx").on(t.teamId),
   index("ttpl_type_idx").on(t.trackerType),
+]);
+
+/**
+ * client_location
+ * A store/branch of a client. `aliases` are the other spellings candidates'
+ * locations arrive in ("Gurgaon", "Gurugram"); a candidate whose location
+ * matches the name or an alias is mailed to this location's contacts, using
+ * this location's tracker template.
+ */
+export const clientLocation = pgTable("client_location", {
+  id:               pkUuid(),
+  organisationId:   orgId().references(() => organisation.id, { onDelete: "cascade" }),
+  clientId:         uuid("client_id").notNull().references(() => client.id, { onDelete: "cascade" }),
+  createdBy:        uuid("created_by").notNull().references(() => user.id),
+
+  name:             text("name").notNull(),
+  aliases:          text("aliases").array().notNull().default(sql`'{}'::text[]`),
+  trackerTemplateId: uuid("tracker_template_id").references(() => trackerTemplate.id, { onDelete: "set null" }),
+
+  ...timestamps,
+}, (t) => [
+  index("cloc_org_idx").on(t.organisationId),
+  index("cloc_client_idx").on(t.clientId),
+]);
+
+/**
+ * client_mail_log
+ * "Mark as sent": the app never sends the mail itself (it is copied into the
+ * HR's own Outlook/Gmail), so this records that HR sent it, to whom and which
+ * candidates it covered. Snapshots, so later edits to contacts don't rewrite history.
+ */
+export const clientMailLog = pgTable("client_mail_log", {
+  id:               pkUuid(),
+  organisationId:   orgId().references(() => organisation.id, { onDelete: "cascade" }),
+  clientId:         uuid("client_id").notNull().references(() => client.id, { onDelete: "cascade" }),
+  locationId:       uuid("location_id").references(() => clientLocation.id, { onDelete: "set null" }),
+  templateId:       uuid("template_id").references(() => trackerTemplate.id, { onDelete: "set null" }),
+  sentBy:           uuid("sent_by").notNull().references(() => user.id),
+
+  subject:          text("subject").notNull(),
+  toEmails:         jsonb("to_emails").notNull().default(sql`'[]'::jsonb`),
+  ccEmails:         jsonb("cc_emails").notNull().default(sql`'[]'::jsonb`),
+  trackerIds:       jsonb("tracker_ids").notNull().default(sql`'[]'::jsonb`),
+  candidateCount:   integer("candidate_count").notNull().default(0),
+
+  sentAt:           timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("cml_org_idx").on(t.organisationId),
+  index("cml_client_idx").on(t.clientId, t.sentAt),
 ]);
 
 /**

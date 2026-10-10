@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, ApiError } from '../lib/api';
 import { AppLayout } from '../components/AppLayout';
@@ -260,7 +261,7 @@ export function ClientsPage() {
                   <Fragment key={c.id}>
                     <TableRow key={c.id}>
                       <TableCell>
-                        <div className="font-medium">{c.companyName}</div>
+                        <Link to={`/clients/${c.id}`} className="font-medium hover:underline">{c.companyName}</Link>
                         {c.industry && <div className="text-xs text-muted-foreground">{c.industry}</div>}
                       </TableCell>
                       <TableCell className="text-muted-foreground">

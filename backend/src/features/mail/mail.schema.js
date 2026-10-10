@@ -21,4 +21,17 @@ const composeSchema = z.object({
   }),
 });
 
-module.exports = { composeSchema };
+const email = z.object({ name: z.string().trim().max(120).optional(), email: z.string().trim().email() });
+const markSentSchema = z.object({
+  body: z.object({
+    clientId: z.string().uuid('Invalid client ID'),
+    locationId: z.string().uuid('Invalid location ID').nullable().optional(),
+    templateId: z.string().uuid('Invalid template ID').nullable().optional(),
+    subject: z.string().trim().min(1).max(300),
+    to: z.array(email).max(30).default([]),
+    cc: z.array(email).max(30).default([]),
+    trackerIds: z.array(z.string().uuid('Invalid tracker ID')).min(1, 'Pick at least one candidate').max(200),
+  }),
+});
+
+module.exports = { composeSchema, markSentSchema };
