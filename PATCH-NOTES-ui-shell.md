@@ -15,3 +15,10 @@ Org admins have 6 tab-bar screens (Home, Team, Pipeline, Clients, People, Settin
 ## Checked / not checked
 - vite build passes; oxlint 0 errors (same 33 existing warnings).
 - Not tried in a browser or on a phone.
+
+## HR workbench cards (added in this patch)
+- Main button names the action: "Schedule Interview →", "Mark Reached →", "Make Offer →"… (src/lib/stageVerbs.js, keyed by stageKey; custom stages fall back to "Move to <name>").
+- New "⋯" button opens an actions sheet: Choose Another Stage…, Put on Hold, Reject… (only what the role may do). Replaces the two small icon buttons.
+- New segmented stage-progress bar on each active card (components/hr/StageProgress.jsx), built from the candidate's own workflow.
+- New files: lib/stageVerbs.js, components/hr/StageProgress.jsx, components/hr/CandidateActionsSheet.jsx. Changed: pages/HrPage.jsx.
+- Not in this patch: the desktop table view from the mockups (cards still used on desktop).

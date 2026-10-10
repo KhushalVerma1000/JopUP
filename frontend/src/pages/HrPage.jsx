@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Table2, Copy, Check, Briefcase, MapPin, Tag, MessageCircle } from 'lucide-react';
+import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Table2, Copy, Check, Briefcase, MapPin, Tag, MessageCircle, MoreHorizontal } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
@@ -16,6 +16,9 @@ import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
 import { LineupDateSheet } from '../components/hr/LineupDateSheet';
 import { MailComposeSheet } from '../components/hr/MailComposeSheet';
 import { TrackerMailSheet } from '../components/hr/TrackerMailSheet';
+import { StageProgress } from '../components/hr/StageProgress';
+import { CandidateActionsSheet } from '../components/hr/CandidateActionsSheet';
+import { nextStepLabel } from '../lib/stageVerbs';
 import { BulkBar } from '../components/hr/BulkBar';
 import { BulkDatesSheet } from '../components/hr/BulkDatesSheet';
 import { BulkStatusSheet } from '../components/hr/BulkStatusSheet';
@@ -78,6 +81,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const [reason, setReason] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [updating, setUpdating] = useState(null);   // tracker being moved (stage-update sheet)
+  const [menuFor, setMenuFor] = useState(null);      // tracker whose "⋯" actions menu is open
   const [tagging, setTagging] = useState(null);     // tracker being (re)tagged to a position
   const [copiedId, setCopiedId] = useState(null);
   const [dayChoice, setDayChoice] = useState('any');   // 'any' | 'today' | 'tomorrow' | 'YYYY-MM-DD'
@@ -202,7 +206,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
       stage: t.currentStage ? copyStageLabel(t.currentStage.stageKey, t.currentStage.name) : undefined, status: t.currentStageNote,
     }));
     if (ok) { setCopiedId(t.id); setTimeout(() => setCopiedId((id) => (id === t.id ? null : id)), 1500); }
-    else setActionError('Your browser blocked copying. Use the Move button instead — it shows the text so you can copy it by hand.');
+    else setActionError('Your browser blocked copying. Use the stage button instead — it shows the text so you can copy it by hand.');
   }
 
   const filterPositions = positions.filter((p) => all.some((t) => t.openPositionId === p.id) || p.status === 'open');
@@ -303,6 +307,8 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
                 {t.interviewDate && t.status === 'active' && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />Interview {shortDate(t.interviewDate)}</span>}
               </div>
 
+              {t.status === 'active' && <StageProgress stages={stagesByTemplate[t.workflowTemplateId]} currentStageId={t.currentStage?.id} />}
+
               {t.status === 'active' && (canWrite || t.interviewDate) && (
                 <div className="flex flex-wrap gap-2">
                   {canWrite && (
@@ -325,11 +331,12 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
                 <div className="flex gap-2">
                   {canAdvance && (
                     <Button className="flex-1" disabled={busy || !next} onClick={() => setUpdating(t)}>
-                      {next ? <>Move to {next.name} <ArrowRight /></> : 'No further stages'}
+                      {next ? <>{nextStepLabel(next)} <ArrowRight /></> : 'No further stages'}
                     </Button>
                   )}
-                  {canHold && <Button variant="outline" size="icon" aria-label="Put on hold" disabled={busy} onClick={() => act(t, 'hold')}><Pause /></Button>}
-                  {canBlock && <Button variant="outline" size="icon" aria-label="Reject" disabled={busy} onClick={() => { setRejecting(t); setReason(''); }}><X /></Button>}
+                  {(canAdvance || canHold || canBlock) && (
+                    <Button variant="outline" size="icon" aria-label={`More actions for ${t.candidateName}`} aria-haspopup="dialog" disabled={busy} onClick={() => setMenuFor(t)}><MoreHorizontal /></Button>
+                  )}
                 </div>
               )}
               {t.status === 'on_hold' && canHold && (
@@ -393,6 +400,15 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
         trackerIds={mail?.trackerIds || []}
         date={mail?.date}
         whatsappFor={(m) => (mail?.type === 'interview_reminder' ? whatsappUrl(m.candidatePhoneE164, m.candidatePhone, m.whatsappText) : null)}
+      />
+
+      <CandidateActionsSheet
+        tracker={menuFor}
+        onClose={() => setMenuFor(null)}
+        canAdvance={canAdvance} canHold={canHold} canBlock={canBlock}
+        onChooseStage={(t) => setUpdating(t)}
+        onHold={(t) => act(t, 'hold')}
+        onReject={(t) => { setRejecting(t); setReason(''); }}
       />
 
       <StageUpdateSheet
