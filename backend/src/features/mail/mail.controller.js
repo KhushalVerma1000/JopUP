@@ -17,6 +17,11 @@ class MailController {
     res.json({ status: 'success', data });
   }
 
+  async pending(req, res) {
+    const data = await optionsService.pending(req.tenantId, req.user, mailService);
+    res.json({ status: 'success', data });
+  }
+
   async markSent(req, res) {
     const data = await mailService.markSent(req.tenantId, req.user, req.body);
     res.status(201).json({ status: 'success', data });

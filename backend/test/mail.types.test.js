@@ -96,3 +96,34 @@ test('schemas accept known mail types and reject made-up ones', () => {
 test('the new routes require authentication', async () => {
   for (const p of ['/api/v1/mail/types', '/api/v1/mail/options?type=lineup']) assert.equal((await request(app).get(p)).status, 401, p);
 });
+
+const { buildPending } = require('../src/features/mail/options.service');
+test('pending list: what is still to send, per client, location and day, from today on', () => {
+  const trackers = [
+    mk('1', A, 'Aligarh'), mk('2', A, 'Aligarh UP'), mk('3', A, 'Noida', { lineupDate: '2026-10-15T05:30:00Z' }),
+    mk('4', A, 'Aligarh', { lineupDate: '2026-10-10T05:30:00Z' }),       // yesterday: not pending
+    mk('5', B, 'Pune'), mk('6', null, 'Pune'),                            // internal hire: never
+    mk('7', A, 'Aligarh', { lineupDate: null, interviewDate: '2026-10-14T08:00:00Z' }),
+  ];
+  const run = (logs) => buildPending({ trackers, profiles, logs, tz: 'Asia/Kolkata', today: '2026-10-14', until: '2026-10-28' });
+  const none = run([]);
+  assert.deepEqual(none.map((p) => [p.type, p.clientName, p.locationName, p.date, p.count, p.sent]), [
+    ['interview_schedule', 'Acme', 'Aligarh', '2026-10-14', 1, false],
+    ['lineup', 'Acme', 'Aligarh', '2026-10-14', 2, false],
+    ['lineup', 'Beta', 'No hiring location set up', '2026-10-14', 1, false],
+    ['lineup', 'Acme', 'Noida', '2026-10-15', 1, false],
+  ]);
+
+  const at = new Date('2026-10-13T10:00:00Z');
+  const full = run([{ clientId: A, locationId: 'alg', mailType: 'lineup', trackerIds: ['1', '2'], sentAt: at, first: 'Priya' }]);
+  const l = full.find((p) => p.type === 'lineup' && p.locationName === 'Aligarh');
+  assert.ok(l.sent && !l.partlySent && l.lastSent.by === 'Priya');
+  const wrongType = full.find((p) => p.type === 'interview_schedule');
+  assert.ok(!wrongType.sent, 'a lineup mail does not count as the interview schedule being sent');
+
+  const partial = run([{ clientId: A, locationId: 'alg', mailType: 'lineup', trackerIds: ['1'], sentAt: at }]).find((p) => p.type === 'lineup' && p.locationName === 'Aligarh');
+  assert.ok(!partial.sent && partial.partlySent && partial.unsent === 1, 'someone added after sending → follow-up due');
+});
+test('pending route requires authentication', async () => {
+  assert.equal((await request(app).get('/api/v1/mail/pending')).status, 401);
+});

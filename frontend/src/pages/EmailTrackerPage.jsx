@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { ColumnSwitches } from '../components/mail/ColumnSwitches';
 import { MailPicker } from '../components/mail/MailPicker';
+import { PendingMails } from '../components/mail/PendingMails';
 import { ReadyChecks } from '../components/mail/ReadyChecks';
 import { useTrackerMail } from '../hooks/useTrackerMail';
 import { cn } from '@/lib/utils';
@@ -65,6 +66,7 @@ export function EmailTrackerPage() {
         </div>
       ) : (
         <>
+          <PendingMails value={value} onPick={onPick} refreshKey={m.isSent} />
           <MailPicker value={value} onChange={onPick} onReady={setReady} />
           {pills.length > 1 && (
             <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Mails for this client">

@@ -16,6 +16,7 @@ router.post('/compose', requirePermission('trackers', 'read'), validate(schema.c
 
 // The Email Tracker tab: which kinds of mail exist, and what each picker step (client → location → date) offers.
 router.get('/types', requirePermission('trackers', 'read'), controller.types.bind(controller));
+router.get('/pending', requirePermission('trackers', 'read'), controller.pending.bind(controller));
 router.get('/options', requirePermission('trackers', 'read'), validate(schema.optionsSchema), controller.options.bind(controller));
 
 // "Mark as sent" — HR pasted the mail into their own mail app and sent it; this logs it against the client.
