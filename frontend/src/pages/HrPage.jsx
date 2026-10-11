@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Table2, Copy, Check, Briefcase, MapPin, Tag, MessageCircle, MoreHorizontal } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
@@ -16,6 +17,7 @@ import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
 import { LineupDateSheet } from '../components/hr/LineupDateSheet';
 import { MailComposeSheet } from '../components/hr/MailComposeSheet';
 import { TrackerMailSheet } from '../components/hr/TrackerMailSheet';
+import { TRACKER_IDS_KEY } from './EmailTrackerPage';
 import { StageProgress } from '../components/hr/StageProgress';
 import { CandidateActionsSheet } from '../components/hr/CandidateActionsSheet';
 import { nextStepLabel } from '../lib/stageVerbs';
@@ -87,7 +89,12 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const [dayChoice, setDayChoice] = useState('any');   // 'any' | 'today' | 'tomorrow' | 'YYYY-MM-DD'
   const [pickedDay, setPickedDay] = useState('');
   const [datingLineup, setDatingLineup] = useState(null); // tracker whose lineup date is being set
-  const [trackerMail, setTrackerMail] = useState(null);       // tracker ids for the client tracker mail
+  const [trackerMail, setTrackerMail] = useState(null);       // tracker ids for the client tracker mail (phone sheet)
+  const navigate = useNavigate();
+  // Desktop opens the full Email Tracker page (the design's two panes); a phone gets the bottom sheet.
+  const openTrackerMail = (ids) => {
+    if (window.matchMedia('(min-width: 1024px)').matches) { sessionStorage.setItem(TRACKER_IDS_KEY, JSON.stringify(ids)); navigate('/hr/email-tracker'); } else setTrackerMail(ids);
+  };
   const [mail, setMail] = useState(null);                 // { type, trackerIds, date }
   const [selecting, setSelecting] = useState(false);       // bulk selection mode
   const [selected, setSelected] = useState(() => new Set());
@@ -226,7 +233,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
           {filterPositions.map((p) => <option key={p.id} value={p.id}>{p.designation}{p.clientName ? ` — ${p.clientName}` : ''}</option>)}
         </NativeSelect>
         {canTemplates && active.length > 0 && (
-          <Button type="button" variant="outline" size="sm" onClick={() => setTrackerMail((selecting && selected.size ? [...selected] : active.map((t) => t.id)))}>
+          <Button type="button" variant="outline" size="sm" onClick={() => openTrackerMail(selecting && selected.size ? [...selected] : active.map((t) => t.id))}>
             <Table2 /> Email tracker ({selecting && selected.size ? selected.size : active.length})
           </Button>
         )}

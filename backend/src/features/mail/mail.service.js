@@ -16,7 +16,7 @@ const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = req
  * is stored until sending exists (email_message needs a sender identity).
  */
 class MailService {
-  async compose(orgId, user, { type, trackerIds, clientId, templateId, columns }) {
+  async compose(orgId, user, { type, trackerIds, clientId, templateId, columns, toPick }) {
     const ids = [...new Set(trackerIds)];
     const teamIds = visibleTeamIds(user);
     if (Array.isArray(teamIds) && teamIds.length === 0) throw new NotFoundError('Candidates not found');
@@ -36,7 +36,7 @@ class MailService {
     const senderName = [me?.firstName, me?.lastName].filter(Boolean).join(' ');
     const trackers = assertSingleClient(await trackersService._enrichTrackers(rows), clientId);
 
-    if (type === 'tracker') return this._tracker(orgId, user, trackers, { tz, senderName, orgName: org?.name, templateId, columns });
+    if (type === 'tracker') return this._tracker(orgId, user, trackers, { tz, senderName, orgName: org?.name, templateId, columns, toPick });
     if (type === 'interview_reminder') return this._interviewReminders(trackers, { tz, senderName, orgName: org?.name });
     return this._lineup(trackers, { tz, senderName, orgName: org?.name });
   }
@@ -132,8 +132,13 @@ class MailService {
       const sorted = [...g.list].sort((a, b) => new Date(a.lineupDate || a.interviewDate || 0) - new Date(b.lineupDate || b.interviewDate || 0));
       const rows = sorted.map((t) => columns.map((c) => resolveValue(c.key, t, { tz: ctx.tz, candidate: candById.get(t.candidateId) })));
       const title = `${template?.name || 'Tracker'}${g.clientName ? ` — ${g.clientName}` : ''}${location ? ` · ${location.name}` : ''}, ${formatDay(new Date(), ctx.tz)}`;
-      const recipients = this._recipients(g.profile, location);
-      const mail = renderTrackerMail({ clientName: g.clientName, title, columns, rows, senderName: ctx.senderName, orgName: ctx.orgName });
+      const all = this._recipients(g.profile, location);
+      // HR may narrow To to some of the listed contacts; anything not on the profile is ignored.
+      const pick = ctx.toPick?.[`${g.clientId || ''}|${location?.id || ''}`];
+      const to = pick?.length ? all.to.filter((r) => pick.map((e) => e.toLowerCase()).includes(r.email.toLowerCase())) : all.to;
+      const recipients = { ...all, to: to.length ? to : all.to };
+      const firstName = (n) => String(n || '').trim().split(/\s+/)[0];
+      const mail = renderTrackerMail({ clientName: g.clientName, title, columns, rows, senderName: ctx.senderName, orgName: ctx.orgName, greetingNames: recipients.to.map((r) => firstName(r.name)) });
       messages.push({
         clientId: g.clientId,
         clientName: g.clientName,
@@ -142,7 +147,9 @@ class MailService {
         // The client has locations set up, but this candidate fits none: HR should fix the aliases.
         locationUnmatched: !!g.profile && g.profile.locations.length > 0 && !location,
         to: recipients.to,
+        toAll: all.to,
         cc: recipients.cc,
+        key: `${g.clientId || ''}|${location?.id || ''}`,
         recipientsFrom: recipients.from,
         templateId: template?.id || null,
         templateName: template?.name || null,

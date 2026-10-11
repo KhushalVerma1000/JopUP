@@ -61,7 +61,7 @@ test('tracker table: bordered Excel-style HTML, aligned text, pasteable TSV — 
   const columns = [{ label: 'Name' }, { label: 'Mobile' }, { label: 'Remarks' }];
   const rows = [['Asha K', '+919800000001', ''], ['Ravi <b>M</b>', '+919800000002', 'Bring ID\tproof']];
   const m = renderTrackerMail({ clientName: 'A&B', title: 'Interview — A&B', columns, rows, senderName: '<i>Priya</i>', orgName: 'Zenith' });
-  assert.ok(m.html.includes('border:1px solid #bfbfbf') && m.html.includes('<th'));
+  assert.ok(m.html.includes('border:1px solid #9aa1b5') && m.html.includes('<th'));
   assert.ok(!m.html.includes('<b>M</b>') && !m.html.includes('<i>Priya</i>'), 'user-typed text is escaped');
   assert.ok(m.html.includes('A&amp;B'));
   assert.equal(m.tsv.split('\n').length, 3);

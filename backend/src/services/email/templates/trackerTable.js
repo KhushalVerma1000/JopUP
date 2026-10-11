@@ -9,15 +9,16 @@ const { esc } = require('./lineup');
  * escaped: names, remarks and locations are typed by users and this goes out
  * to clients.
  */
-function renderTrackerMail({ clientName, title, intro, columns, rows, senderName, orgName }) {
+function renderTrackerMail({ clientName, title, intro, columns, rows, senderName, orgName, greetingNames }) {
   const subject = title;
   const head = columns.map((c) => c.label);
 
-  const cell = 'border:1px solid #bfbfbf;padding:6px 10px;font-size:13px;color:#18181b;vertical-align:top;white-space:nowrap';
-  const th = 'border:1px solid #bfbfbf;padding:6px 10px;font-size:13px;font-weight:bold;background:#e7e6e6;color:#18181b;text-align:left;white-space:nowrap';
-  const table = `<div style="overflow-x:auto"><table cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #bfbfbf;font-family:Calibri,Arial,Helvetica,sans-serif"><thead><tr>${head.map((h) => `<th align="left" style="${th}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, i) => `<tr${i % 2 ? ' style="background:#f7f7f7"' : ''}>${r.map((v) => `<td style="${cell}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const cell = 'border:1px solid #9aa1b5;padding:6px 10px;font-size:13px;color:#18181b;vertical-align:top;white-space:nowrap';
+  const th = 'border:1px solid #9aa1b5;padding:6px 10px;font-size:13px;font-weight:bold;background:#e8ebfb;color:#18181b;text-align:left;white-space:nowrap';
+  const table = `<div style="overflow-x:auto"><table cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #9aa1b5;font-family:Calibri,Arial,Helvetica,sans-serif"><thead><tr>${head.map((h) => `<th align="left" style="${th}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, i) => `<tr${i % 2 ? ' style="background:#f7f7f7"' : ''}>${r.map((v) => `<td style="${cell}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 
-  const greeting = clientName ? `Hi ${clientName} team,` : 'Hi,';
+  const names = (greetingNames || []).filter(Boolean);
+  const greeting = names.length ? `Hi ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]},` : clientName ? `Hi ${clientName} team,` : 'Hi,';
   const lead = intro || 'Please find the tracker below.';
   const html = `<div style="font-family:Calibri,Arial,Helvetica,sans-serif;font-size:14px;color:#18181b"><p>${esc(greeting)}</p><p>${esc(lead)}</p>${table}<p style="margin-top:20px">Regards,<br>${esc(senderName)}${orgName ? `<br>${esc(orgName)}` : ''}</p></div>`;
 

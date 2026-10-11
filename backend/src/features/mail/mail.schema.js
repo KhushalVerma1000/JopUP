@@ -17,6 +17,8 @@ const composeSchema = z.object({
     // toggled for this one send and wins over the template (never saved back).
     templateId: z.string().uuid('Invalid template ID').optional(),
     columns: z.array(z.object({ key: z.string().refine(isKnownKey, 'Unknown column'), label: z.string().trim().max(40).optional() })).min(1).max(20).optional(),
+    // Narrow To for a mail: { "<clientId>|<locationId>": [emails] }. Only contacts already on the profile are honoured.
+    toPick: z.record(z.string(), z.array(z.string().email()).max(30)).optional(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
   }),
 });

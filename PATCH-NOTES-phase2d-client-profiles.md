@@ -20,15 +20,20 @@ Follows the approved design: client profile, then the five-step mail flow.
 - POST /mail/sent (trackers:write): re-checks tenant, team and single-client rules, then logs it.
 - A mail to one client still can never contain another client's candidates (clientScope.js unchanged; grouping is client-first).
 
-## Frontend
+## Frontend (built to the approved Claude Design canvas)
+- Email Tracker is now a full page on desktop (/hr/email-tracker): steps header, client pills, left settings card (To, Template, Subject, Columns with on/off switches and drag/arrow reorder), right "how the client sees it" preview, Copy Table / Copy for Excel / Copy as Text, Mark as Sent. On a phone it is the design's bottom sheet (Columns (n), Subject…, sideways preview, sticky Copy Table).
+- To can be narrowed to one contact; the greeting names the To contacts ("Hi Meera,"). Table colours follow the design.
+- Client profile: underline tabs, location cards, dashed "+ Add Location & Contact", the "How a mail finds its contact" panel with the amber unmatched warning.
 - /clients/:id client profile: Overview, Locations & Contacts (aliases, To/CC pills, template, "how a mail finds its contact", unmatched-location warning), Mail settings (template per location), Sent history.
 - Company names in the Clients list link to the profile.
 - TrackerMailSheet: Auto template by default, To/CC with copy buttons, unmatched/no-contact warnings linking to the profile, Mark as sent.
 
 ## Checked / not checked
 - Backend: npm test 156 pass, 19 skipped (need a database), 0 fail. New tests: test/mail.profiles.test.js.
-- Frontend: vite build passes, oxlint 0 errors.
+- Frontend: vite build passes, oxlint 0 errors. Desktop client profile and Email Tracker rendered in headless Chrome with mocked API data and compared with the design boards.
 - NOT run against a live Postgres: the migration, the queries and the end-to-end mail flow are untested. Please run the migration and try one mail before relying on it.
-- Not tried in a browser or on a phone.
+- The phone bottom sheet was built but not rendered or tried on a real phone.
+- The design's "Mark as Sent logs it on each candidate" is implemented as a log on the client's sent history, not a per-candidate field.
+- The columns list shows every catalogue column (off ones greyed), so it is longer than the design's seven rows.
 - The design's "Fix Locations…" opens the client profile; there is no one-tap fix of a single candidate's spelling yet.
 - Contacts are only editable by managers/org admins; HR sees them read-only.

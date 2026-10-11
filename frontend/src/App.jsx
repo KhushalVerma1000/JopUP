@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { ClientProfilePage } from './pages/ClientProfilePage';
+import { EmailTrackerPage } from './pages/EmailTrackerPage';
 import { ManagerialPage } from './pages/ManagerialPage';
 import { ManagerPage } from './pages/ManagerPage';
 import { HrPage } from './pages/HrPage';
@@ -65,6 +66,7 @@ export default function App() {
           <Route path="/analytics" element={guard(<AnalyticsPage />, pipelineArea)} />
           <Route path="/performance" element={guard(<PerformancePage />, performanceArea)} />
           <Route path="/clients" element={guard(<ClientsPage />, tenantStaff)} />
+          <Route path="/hr/email-tracker" element={guard(<EmailTrackerPage />, pipelineArea)} />
           <Route path="/clients/:id" element={guard(<ClientProfilePage />, tenantStaff)} />
           <Route path="/employees" element={guard(<EmployeesPage />, managerArea)} />
           <Route path="/managerial" element={guard(<ManagerialPage />, managerArea)} />

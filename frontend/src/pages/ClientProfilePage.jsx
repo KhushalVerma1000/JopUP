@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ChevronRight, MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
-import { PageHeader, Section, Chips, Loading, ErrorNote, Notice, EmptyState, Avatar } from '@/components/common';
+import { PageHeader, Section, Loading, ErrorNote, Notice, EmptyState, Avatar } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { LocationSheet, ContactSheet } from '../components/clients/ClientMailForms';
@@ -82,7 +82,14 @@ export function ClientProfilePage() {
       </nav>
       <PageHeader title={c?.companyName || 'Client'} subtitle={c?.industry || undefined}
         action={canWrite && tab === 'locations' ? <Button onClick={() => setLocSheet({ open: true, location: null })}><Plus /> Add location</Button> : null} />
-      <Chips items={TABS} value={tab} onChange={setTab} className="mb-5" />
+      <div role="tablist" className="mb-5 flex gap-1 overflow-x-auto border-b">
+        {TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
+            className={`-mb-px h-10 shrink-0 border-b-2 px-3.5 text-sm ${tab === t.key ? 'border-primary font-medium text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {(client.loading || profile.loading) && <Loading />}
       <ErrorNote>{client.error || profile.error || actionError}</ErrorNote>
@@ -133,7 +140,13 @@ export function ClientProfilePage() {
                 </div>
               </Card>
             ))}
-            <div className="rounded-xl border border-dashed p-4">
+            {canWrite && locations.length > 0 && (
+              <button type="button" onClick={() => setLocSheet({ open: true, location: null })}
+                className="flex h-14 w-full items-center justify-center rounded-xl border border-dashed border-primary/40 text-sm text-primary hover:bg-primary/5">
+                + Add Location &amp; Contact
+              </button>
+            )}
+            <div className="rounded-xl border bg-card p-4">
               <div className="flex items-center justify-between gap-2">
                 <div><div className="text-sm font-medium">Client-wide contacts</div><div className="text-xs text-muted-foreground">Used when a location has no contacts of its own, or a candidate fits no store.</div></div>
                 {canWrite && <Button type="button" variant="outline" size="sm" onClick={() => setContactSheet({ open: true, contact: null, locationId: '' })}><Plus /> Add</Button>}

@@ -1,200 +1,92 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Copy, Check, Table2, ChevronDown, Send } from 'lucide-react';
-import { Sheet, ErrorNote, Field, Notice, Loading, Chips } from '@/components/common';
+import { Check } from 'lucide-react';
+import { Sheet, ErrorNote, Notice, Loading } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ColumnPicker } from '../mail/ColumnPicker';
-import { apiFetch } from '../../lib/api';
-import { copyText } from '../../lib/clipboard';
-import { copyRich } from '../../lib/richCopy';
-import { errorMessage } from '../../hooks/useFetch';
+import { NativeSelect } from '@/components/ui/native-select';
+import { ColumnSwitches } from '../mail/ColumnSwitches';
+import { useTrackerMail } from '../../hooks/useTrackerMail';
+import { cn } from '@/lib/utils';
 
 /**
- * Tracker mail for a client: HR picks one of the manager's templates, may
- * toggle columns for THIS send only, sees the table exactly as the client
- * will, and copies it (as a real table, as text, or as cells for Excel).
- * One mail per client location: To, CC and the template come from the client's
- * profile. Nothing is sent from here; "Mark as sent" records it once HR has sent
- * it from their own mail app. A mail never mixes two clients.
+ * Tracker Mail on a phone, the design's bottom sheet: client pills, who it goes to and
+ * which template, Columns and Subject one tap away, the table to scroll sideways, and
+ * Copy Table / Copy as Text / Mark as Sent at the bottom. Desktop uses EmailTrackerPage.
  */
 export function TrackerMailSheet({ open, onClose, trackerIds }) {
-  const [meta, setMeta] = useState({ templates: [], catalogue: [], error: null });
-  const [templateId, setTemplateId] = useState('');       // '' = default columns
-  const [custom, setCustom] = useState(null);             // per-send columns, null = use template
-  const [tweak, setTweak] = useState(false);
-  const [state, setState] = useState({ loading: false, error: null, messages: [] });
-  const [idx, setIdx] = useState(0);
-  const [subjects, setSubjects] = useState({});
-  const [copied, setCopied] = useState(null);
-  const [sent, setSent] = useState({});                    // mail index -> true once logged
-  const [sending, setSending] = useState(false);
-  const timer = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    let cancelled = false;
-    setTemplateId(''); setCustom(null); setTweak(false); setIdx(0); setSubjects({}); setCopied(null); setSent({});
-    Promise.all([apiFetch('/api/v1/mail/templates'), apiFetch('/api/v1/mail/columns')])
-      .then(([t, c]) => {
-        if (cancelled) return;
-        setMeta({ templates: t.data, catalogue: c.data, error: null });
-      })
-      .catch((err) => { if (!cancelled) setMeta({ templates: [], catalogue: [], error: errorMessage(err, 'Could not load the tracker templates.') }); });
-    return () => { cancelled = true; clearTimeout(timer.current); };
-  }, [open]);
-
-  const columnsKey = custom ? custom.map((c) => `${c.key}:${c.label || ''}`).join(',') : '';
-  useEffect(() => {
-    if (!open) return undefined;
-    let cancelled = false;
-    setState((s) => ({ ...s, loading: true, error: null }));
-    const body = { type: 'tracker', trackerIds, ...(custom ? { columns: custom } : templateId ? { templateId } : {}) };
-    apiFetch('/api/v1/mail/compose', { method: 'POST', body })
-      .then((res) => { if (!cancelled) { setState({ loading: false, error: null, messages: res.data.messages }); setIdx(0); setSent({}); } })
-      .catch((err) => { if (!cancelled) setState({ loading: false, error: errorMessage(err, 'Could not build the tracker.'), messages: [] }); });
-    return () => { cancelled = true; };
-  }, [open, templateId, columnsKey, trackerIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const msg = state.messages[idx];
-  const subject = subjects[idx] ?? msg?.subject ?? '';
-  const template = meta.templates.find((t) => t.id === templateId) || meta.templates.find((t) => t.id === msg?.templateId);
-
-  function flash(which, ok) {
-    if (!ok) { setState((s) => ({ ...s, error: 'Your browser blocked copying. Try again, or select the table by hand.' })); return; }
-    setCopied(which);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(null), 1500);
-  }
-  const copyTable = () => copyRich(msg.html, msg.text).then((ok) => flash('table', ok));
-  const copyPlain = () => copyText(msg.text).then((ok) => flash('text', ok));
-  const copyCells = () => copyText(msg.tsv).then((ok) => flash('cells', ok));
-
-  function startTweak() {
-    if (!custom) setCustom((template?.columns || []).length ? template.columns : defaultColumns(meta.catalogue));
-    setTweak(true);
-  }
-  function pickTemplate(k) { setTemplateId(k === 'none' ? '' : k); setCustom(null); setTweak(false); }
-
-  const items = [{ key: 'none', label: 'Auto' }, ...meta.templates.map((t) => ({ key: t.id, label: t.name }))];
-  const clients = state.messages.map((m, i) => ({ key: String(i), label: [m.clientName || 'No client', m.locationName].filter(Boolean).join(' · '), count: m.candidateCount }));
-  const toLine = (list) => list.map((r) => r.email).join('; ');
-
-  async function markSent() {
-    setSending(true);
-    try {
-      await apiFetch('/api/v1/mail/sent', { method: 'POST', body: {
-        clientId: msg.clientId, locationId: msg.locationId, templateId: msg.templateId, subject,
-        to: msg.to.map(({ name, email }) => ({ name, email })), cc: msg.cc.map(({ name, email }) => ({ name, email })), trackerIds: msg.trackerIds,
-      } });
-      setSent((x) => ({ ...x, [idx]: true }));
-    } catch (err) {
-      setState((s) => ({ ...s, error: errorMessage(err, 'Could not log the send. Your mail is unaffected; try again.') }));
-    } finally { setSending(false); }
-  }
+  const m = useTrackerMail(trackerIds, open);
+  const { msg, state, meta } = m;
+  const [panel, setPanel] = useState(null);       // 'columns' | 'subject'
+  const pills = state.messages.map((x, i) => ({ i, text: [x.clientName || 'No client', state.messages.filter((y) => y.clientId === x.clientId).length > 1 ? x.locationName : null].filter(Boolean).join(' · '), n: x.candidateCount }));
 
   return (
-    <Sheet open={open} onClose={onClose} size="xl" title="Tracker mail"
-      description="To, CC and columns are filled from the client's profile. Check, copy, send from your own mail, then mark it as sent.">
-      <div className="flex flex-col gap-4">
-        <ErrorNote>{meta.error}</ErrorNote>
-        {meta.templates.length === 0 && !meta.error && (
-          <Notice>No templates yet. Your manager can set them up under Managerial; until then the standard columns are used.</Notice>
-        )}
-        <p className="-mb-2 text-xs text-muted-foreground">Template: Auto uses each location's own template. Pick one to use it for every mail here.</p>
-        <Chips items={items} value={templateId || 'none'} onChange={pickTemplate} />
-
-        <div>
-          <Button type="button" variant="outline" size="sm" onClick={() => (tweak ? setTweak(false) : startTweak())} aria-expanded={tweak}>
-            <Table2 /> Columns for this send {custom ? '(changed)' : ''} <ChevronDown className={tweak ? 'rotate-180' : ''} />
-          </Button>
-          {tweak && custom && (
-            <div className="mt-3 rounded-xl border p-3">
-              <ColumnPicker catalogue={meta.catalogue} value={custom} onChange={setCustom} />
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">Only this mail changes. The template stays as your manager set it.</p>
-                <Button type="button" variant="ghost" size="sm" onClick={() => { setCustom(null); setTweak(false); }}>Reset</Button>
-              </div>
+    <>
+      <Sheet open={open} onClose={onClose} title="Tracker Mail">
+        <div className="flex flex-col gap-3">
+          {pills.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto pb-1" role="tablist">
+              {pills.map((p) => (
+                <button key={p.i} type="button" role="tab" aria-selected={p.i === m.idx} onClick={() => m.setIdx(p.i)}
+                  className={cn('h-10 shrink-0 rounded-full border px-4 text-sm', p.i === m.idx ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+                  {p.text} · {p.n}
+                </button>
+              ))}
             </div>
           )}
-        </div>
+          <ErrorNote>{meta.error || state.error}</ErrorNote>
+          {state.loading && !msg && <Loading />}
 
-        {state.loading && <Loading label="Building the tracker…" />}
-        <ErrorNote>{state.error}</ErrorNote>
-        {clients.length > 1 && <Chips items={clients} value={String(idx)} onChange={(k) => { setIdx(Number(k)); setCopied(null); }} />}
-        {clients.length > 1 && <Notice>Each client and location gets its own mail, so no client sees another's candidates.</Notice>}
-
-        {msg && (
-          <>
-            {msg.locationUnmatched && (
-              <Notice tone="warn" title="Some candidates fit none of this client's locations">
-                These candidates are in a separate mail using the client-wide contacts.{' '}
-                {msg.clientId && <Link to={`/clients/${msg.clientId}`} className="font-medium underline">Fix locations</Link>}
-              </Notice>
-            )}
-            {msg.clientId && msg.to.length === 0 && msg.cc.length === 0 && (
-              <Notice tone="warn" title="No contacts set up for this mail">
-                Add who it goes to on the client's profile.{' '}<Link to={`/clients/${msg.clientId}`} className="font-medium underline">Open profile</Link>
-              </Notice>
-            )}
-            {(msg.to.length > 0 || msg.cc.length > 0) && (
-              <div className="grid gap-2 rounded-xl border p-3 text-sm">
-                {[['To', msg.to, 'to'], ['CC', msg.cc, 'cc']].filter(([, l]) => l.length).map(([label, list, k]) => (
-                  <div key={k} className="flex items-center gap-2">
-                    <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">{label}</span>
-                    <span className="min-w-0 flex-1 break-words">{list.map((r) => r.name ? `${r.name} <${r.email}>` : r.email).join(', ')}</span>
-                    <Button type="button" variant="outline" size="icon" aria-label={`Copy ${label} addresses`} onClick={() => copyText(toLine(list)).then((ok) => flash(k, ok))}>
-                      {copied === k ? <Check /> : <Copy />}
-                    </Button>
+          {msg && (
+            <>
+              {(msg.locationUnmatched || (msg.clientId && msg.to.length === 0)) && (
+                <Notice tone="warn" title={msg.to.length === 0 ? 'No contact set up for this mail' : 'Some candidates fit no location'}>
+                  {msg.clientId && <Link to={`/clients/${msg.clientId}`} className="font-medium underline">Open the client profile</Link>}
+                </Notice>
+              )}
+              <div className="rounded-xl border p-3 text-sm leading-snug">
+                <div className="text-xs text-muted-foreground">To</div>
+                <div>{msg.to.length ? msg.to.map((r) => (r.name ? `${r.name}${msg.locationName ? ` · ${msg.locationName}` : ''}` : r.email)).join(', ') : '—'}</div>
+                {msg.cc.length > 0 && <><div className="mt-1 text-xs text-muted-foreground">CC</div><div>{msg.cc.map((r) => r.name).join(', ')}</div></>}
+                <div className="mt-1 text-xs text-muted-foreground">Template</div>
+                <NativeSelect aria-label="Template" className="mt-0.5 h-9" value={m.templateId} onChange={(e) => m.setTemplateId(e.target.value)}>
+                  <option value="">{msg.templateName ? `${msg.templateName} (auto)` : 'Standard (auto)'}</option>
+                  {meta.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </NativeSelect>
+                {(msg.to.length > 0 || msg.cc.length > 0) && (
+                  <div className="mt-2 flex gap-2">
+                    {msg.to.length > 0 && <Button type="button" variant="outline" size="sm" onClick={() => m.copyAddresses('to', msg.to)}>{m.copied === 'to' ? <Check /> : null} Copy To</Button>}
+                    {msg.cc.length > 0 && <Button type="button" variant="outline" size="sm" onClick={() => m.copyAddresses('cc', msg.cc)}>{m.copied === 'cc' ? <Check /> : null} Copy CC</Button>}
                   </div>
-                ))}
-                <p className="text-xs text-muted-foreground">{msg.recipientsFrom === 'client' ? 'From the client-wide contacts.' : `From the ${msg.locationName || 'client'} profile.`}</p>
+                )}
               </div>
-            )}
-            <Field label="Subject" htmlFor="tm-subject">
-              <div className="flex gap-2">
-                <Input id="tm-subject" value={subject} onChange={(e) => setSubjects((s) => ({ ...s, [idx]: e.target.value }))} />
-                <Button type="button" variant="outline" size="icon" aria-label="Copy subject" onClick={() => copyText(subject).then((ok) => flash('subject', ok))}>
-                  {copied === 'subject' ? <Check /> : <Copy />}
-                </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" size="lg" onClick={() => setPanel('columns')}>Columns ({m.columns.length})</Button>
+                <Button type="button" variant="outline" size="lg" onClick={() => setPanel('subject')}>Subject…</Button>
               </div>
-            </Field>
+              <div className="text-xs text-muted-foreground">Preview · scroll sideways →</div>
+              <div className={cn('max-h-72 overflow-auto rounded-lg border bg-[#FAFBFD] p-2 text-black', state.loading && 'opacity-60')} dangerouslySetInnerHTML={{ __html: msg.html }} />
+              <div className="sticky bottom-0 -mx-1 flex flex-col gap-2 border-t bg-background px-1 pb-1 pt-3">
+                <Button type="button" size="lg" onClick={m.copyTable}>{m.copied === 'table' ? <><Check /> Copied. Paste it into your mail</> : 'Copy Table'}</Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" size="lg" onClick={m.copyPlain}>{m.copied === 'text' ? 'Copied' : 'Copy as Text'}</Button>
+                  <Button type="button" variant="outline" size="lg" disabled={m.sending || m.isSent || !msg.clientId} onClick={m.markSent}>{m.isSent ? '✓ Sent' : m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Sheet>
 
-            {/* Server-built, and every cell is escaped there; this is the mail as the client sees it. */}
-            <div className="max-h-96 overflow-auto rounded-xl border bg-white p-3 text-black" dangerouslySetInnerHTML={{ __html: msg.html }} />
-
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button type="button" size="lg" className="flex-1" onClick={copyTable}>
-                {copied === 'table' ? <><Check /> Copied</> : <><Copy /> Copy table</>}
-              </Button>
-              <Button type="button" variant="outline" size="lg" className="flex-1" onClick={copyCells}>
-                {copied === 'cells' ? <><Check /> Copied</> : <>Copy for Excel</>}
-              </Button>
-              <Button type="button" variant="outline" size="lg" className="flex-1" onClick={copyPlain}>
-                {copied === 'text' ? <><Check /> Copied</> : <>Copy as text</>}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">{msg.candidateCount} {msg.candidateCount === 1 ? 'candidate' : 'candidates'}. "Copy table" pastes as a formatted table into Outlook or Gmail.</p>
-            {msg.clientId && (
-              <div className="border-t pt-3">
-                {sent[idx]
-                  ? <Notice tone="good">Logged as sent. It now shows in this client's sent history.</Notice>
-                  : (
-                    <div className="flex flex-col items-start gap-1.5">
-                      <Button type="button" variant="secondary" size="lg" className="w-full sm:w-auto" disabled={sending} onClick={markSent}><Send /> {sending ? 'Logging…' : 'Mark as sent'}</Button>
-                      <p className="text-xs text-muted-foreground">Tap after you have sent it from your own mail app. This only records it.</p>
-                    </div>
-                  )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </Sheet>
+      <Sheet open={open && panel === 'columns'} onClose={() => setPanel(null)} title="Columns" description="Changes apply to this send only.">
+        {msg && <ColumnSwitches catalogue={meta.catalogue} value={m.columns} onChange={(next) => m.setColumns(next)} />}
+        {m.customised && <Button type="button" variant="ghost" className="mt-2" onClick={m.resetColumns}>Reset to Template</Button>}
+        <Button type="button" size="lg" className="mt-3 w-full" onClick={() => setPanel(null)}>Done</Button>
+      </Sheet>
+      <Sheet open={open && panel === 'subject'} onClose={() => setPanel(null)} title="Subject">
+        {msg && <Input aria-label="Subject" value={m.subject} onChange={(e) => m.setSubject(e.target.value)} />}
+        <Button type="button" size="lg" className="mt-3 w-full" onClick={() => setPanel(null)}>Done</Button>
+      </Sheet>
+    </>
   );
-}
-
-function defaultColumns(catalogue) {
-  const keys = ['candidate_name', 'mobile', 'position', 'location', 'lineup_time'];
-  return keys.filter((k) => catalogue.some((c) => c.key === k)).map((key) => ({ key }));
 }
