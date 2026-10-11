@@ -11,7 +11,7 @@ const STANDARD = ['candidate_name', 'mobile', 'position', 'location', 'lineup_ti
  * templates + column catalogue, composing one mail per client location from the
  * client profile, per-send column toggles, copy actions, and "mark as sent".
  */
-export function useTrackerMail(trackerIds, active = true) {
+export function useTrackerMail(trackerIds, active = true, extra = {}) {
   const [meta, setMeta] = useState({ templates: [], catalogue: [], error: null });
   const [templateId, setTemplateId] = useState('');          // '' = Auto (the location's template)
   const [custom, setCustom] = useState(null);                // per-send columns; null = from template
@@ -24,6 +24,10 @@ export function useTrackerMail(trackerIds, active = true) {
   const [sending, setSending] = useState(false);
   const timer = useRef(null);
   const idsKey = trackerIds.join(',');
+  // The Email Tracker tab says which kind of mail this is, which client, and which day.
+  // The workbench shortcut sends none of these and keeps the older behaviour.
+  const { mailType, date, clientId } = extra;
+  const extraKey = [mailType, date, clientId].join('|');
 
   useEffect(() => {
     if (!active) return undefined;
@@ -33,7 +37,7 @@ export function useTrackerMail(trackerIds, active = true) {
       .then(([t, c]) => { if (!cancelled) setMeta({ templates: t.data, catalogue: c.data, error: null }); })
       .catch((err) => { if (!cancelled) setMeta({ templates: [], catalogue: [], error: errorMessage(err, 'Could not load the tracker templates.') }); });
     return () => { cancelled = true; clearTimeout(timer.current); };
-  }, [active, idsKey]);
+  }, [active, idsKey, extraKey]);
 
   const columnsKey = custom ? custom.map((c) => `${c.key}:${c.label || ''}`).join(',') : '';
   const pickKey = JSON.stringify(toPick);
@@ -41,12 +45,12 @@ export function useTrackerMail(trackerIds, active = true) {
     if (!active || !trackerIds.length) return undefined;
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: null }));
-    const body = { type: 'tracker', trackerIds, toPick, ...(custom ? { columns: custom } : templateId ? { templateId } : {}) };
+    const body = { type: 'tracker', trackerIds, toPick, ...(mailType ? { mailType } : {}), ...(date ? { date } : {}), ...(mailType && clientId ? { clientId } : {}), ...(custom ? { columns: custom } : templateId ? { templateId } : {}) };
     apiFetch('/api/v1/mail/compose', { method: 'POST', body })
       .then((res) => { if (!cancelled) setState({ loading: false, error: null, messages: res.data.messages }); })
       .catch((err) => { if (!cancelled) setState({ loading: false, error: errorMessage(err, 'Could not build the tracker.'), messages: [] }); });
     return () => { cancelled = true; };
-  }, [active, templateId, columnsKey, pickKey, idsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, templateId, columnsKey, pickKey, idsKey, extraKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const msg = state.messages[Math.min(idx, Math.max(0, state.messages.length - 1))];
   const subject = subjects[msg?.key] ?? msg?.subject ?? '';
@@ -69,7 +73,7 @@ export function useTrackerMail(trackerIds, active = true) {
     setSending(true);
     try {
       await apiFetch('/api/v1/mail/sent', { method: 'POST', body: {
-        clientId: msg.clientId, locationId: msg.locationId, templateId: msg.templateId, subject,
+        clientId: msg.clientId, locationId: msg.locationId, templateId: msg.templateId, mailType: msg.mailType || undefined, subject,
         to: msg.to.map(({ name, email }) => ({ name, email })), cc: msg.cc.map(({ name, email }) => ({ name, email })), trackerIds: msg.trackerIds,
       } });
       setSent((x) => ({ ...x, [sentKey]: true }));

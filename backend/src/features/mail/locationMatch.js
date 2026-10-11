@@ -1,12 +1,12 @@
 /**
  * Which client location does a candidate's free-text location belong to?
- * "Aligarh UP" → the "Aligarh store" whose aliases include "Aligarh".
+ * "Aligarh UP" → the "Aligarh" hiring location whose aliases include "Aligarh".
  *
  * 1. exact match on the name or any alias (ignoring case, punctuation, spacing);
  * 2. otherwise an alias/name whose words all appear in the candidate's location
  *    ("Aligarh UP" contains "Aligarh"); the longest such alias wins;
  * 3. a tie between two different locations is NOT guessed — it counts as unmatched,
- *    so HR fixes the aliases rather than a mail going to the wrong store.
+ *    so HR fixes the aliases rather than a mail going to the wrong location's contacts.
  */
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, ' ').trim();
 const words = (s) => (norm(s) ? norm(s).split(' ') : []);

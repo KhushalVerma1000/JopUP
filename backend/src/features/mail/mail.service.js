@@ -1,5 +1,5 @@
 const { db, schema } = require('../../utils/db');
-const { and, eq, inArray } = require('drizzle-orm');
+const { and, eq, inArray, gte } = require('drizzle-orm');
 const { NotFoundError, BadRequestError } = require('../../utils/errors');
 const { visibleTeamIds } = require('../../utils/teamScope');
 const trackersService = require('../trackers/trackers.service');
@@ -9,6 +9,7 @@ const { auditWrite } = require('../../utils/audit');
 const { renderTrackerMail } = require('../../services/email/templates/trackerTable');
 const templatesService = require('./templates.service');
 const { DEFAULT_COLUMNS, labelFor, resolveValue } = require('./columns');
+const mailTypes = require('./types');
 const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = require('../../services/email/templates/lineup');
 
 /**
@@ -16,7 +17,7 @@ const { renderLineupMail, renderInterviewReminder, formatDay, formatTime } = req
  * is stored until sending exists (email_message needs a sender identity).
  */
 class MailService {
-  async compose(orgId, user, { type, trackerIds, clientId, templateId, columns, toPick }) {
+  async compose(orgId, user, { type, trackerIds, clientId, templateId, columns, toPick, mailType, date }) {
     const ids = [...new Set(trackerIds)];
     const teamIds = visibleTeamIds(user);
     if (Array.isArray(teamIds) && teamIds.length === 0) throw new NotFoundError('Candidates not found');
@@ -36,7 +37,7 @@ class MailService {
     const senderName = [me?.firstName, me?.lastName].filter(Boolean).join(' ');
     const trackers = assertSingleClient(await trackersService._enrichTrackers(rows), clientId);
 
-    if (type === 'tracker') return this._tracker(orgId, user, trackers, { tz, senderName, orgName: org?.name, templateId, columns, toPick });
+    if (type === 'tracker') return this._tracker(orgId, user, trackers, { tz, senderName, orgName: org?.name, templateId, columns, toPick, kind: mailType ? mailTypes.get(mailType) : null, date });
     if (type === 'interview_reminder') return this._interviewReminders(trackers, { tz, senderName, orgName: org?.name });
     return this._lineup(trackers, { tz, senderName, orgName: org?.name });
   }
@@ -90,12 +91,14 @@ class MailService {
    * the location's own template, then the standard columns.
    */
   async _tracker(orgId, user, trackers, ctx) {
-    const live = trackers.filter((t) => ['active', 'on_hold'].includes(t.status));
-    if (live.length === 0) throw new BadRequestError('None of those candidates are in the active pipeline');
+    const kind = ctx.kind;
+    const statuses = kind?.statuses || ['active', 'on_hold'];
+    const live = trackers.filter((t) => statuses.includes(t.status) && (!kind?.stages || kind.stages.includes(t.currentStage?.stageKey)));
+    if (live.length === 0) throw new BadRequestError(kind ? `None of those candidates fit a ${kind.label.toLowerCase()} mail` : 'None of those candidates are in the active pipeline');
 
     const chosen = !ctx.columns && ctx.templateId ? await templatesService.get(orgId, user, ctx.templateId) : null;
     // Auto: location's template, else the template the manager marked default, else the standard columns.
-    const fallback = ctx.columns || chosen ? null : (await templatesService.list(orgId, user)).find((t) => t.isDefault) || null;
+    const fallback = ctx.columns || chosen || kind ? null : (await templatesService.list(orgId, user)).find((t) => t.isDefault) || null;
 
     const cands = await db.select({ id: schema.candidate.id, email: schema.candidate.email, customFields: schema.candidate.customFields })
       .from(schema.candidate).where(inArray(schema.candidate.id, [...new Set(live.map((t) => t.candidateId))]));
@@ -127,18 +130,20 @@ class MailService {
       const location = g.locationId ? g.profile.locations.find((l) => l.id === g.locationId) : null;
       const template = chosen || (ctx.columns ? null : (await templateFor(location?.trackerTemplateId)) || fallback);
       const spec = ctx.columns || template?.columns;
-      const columns = (spec && spec.length ? spec : DEFAULT_COLUMNS).map((c) => ({ key: c.key, label: labelFor(c.key, c.label) }));
+      const kindColumns = kind ? kind.columns.map((key) => ({ key })) : null;
+      const columns = (spec && spec.length ? spec : kindColumns || DEFAULT_COLUMNS).map((c) => ({ key: c.key, label: labelFor(c.key, c.label) }));
 
       const sorted = [...g.list].sort((a, b) => new Date(a.lineupDate || a.interviewDate || 0) - new Date(b.lineupDate || b.interviewDate || 0));
       const rows = sorted.map((t) => columns.map((c) => resolveValue(c.key, t, { tz: ctx.tz, candidate: candById.get(t.candidateId) })));
-      const title = `${template?.name || 'Tracker'}${g.clientName ? ` — ${g.clientName}` : ''}${location ? ` · ${location.name}` : ''}, ${formatDay(new Date(), ctx.tz)}`;
+      const day = ctx.date ? formatDay(new Date(`${ctx.date}T12:00:00Z`), 'UTC') : formatDay(new Date(), ctx.tz);
+      const title = `${kind?.label || template?.name || 'Tracker'}${g.clientName ? ` — ${g.clientName}` : ''}${location ? ` · ${location.name}` : ''}, ${day}`;
       const all = this._recipients(g.profile, location);
       // HR may narrow To to some of the listed contacts; anything not on the profile is ignored.
       const pick = ctx.toPick?.[`${g.clientId || ''}|${location?.id || ''}`];
       const to = pick?.length ? all.to.filter((r) => pick.map((e) => e.toLowerCase()).includes(r.email.toLowerCase())) : all.to;
       const recipients = { ...all, to: to.length ? to : all.to };
       const firstName = (n) => String(n || '').trim().split(/\s+/)[0];
-      const mail = renderTrackerMail({ clientName: g.clientName, title, columns, rows, senderName: ctx.senderName, orgName: ctx.orgName, greetingNames: recipients.to.map((r) => firstName(r.name)) });
+      const mail = renderTrackerMail({ clientName: g.clientName, title, intro: kind?.intro, columns, rows, senderName: ctx.senderName, orgName: ctx.orgName, greetingNames: recipients.to.map((r) => firstName(r.name)) });
       messages.push({
         clientId: g.clientId,
         clientName: g.clientName,
@@ -156,11 +161,54 @@ class MailService {
         trackerIds: sorted.map((t) => t.id),
         candidateCount: g.list.length,
         columns: columns.map((c) => c.key),
+        mailType: kind?.key || null,
+        checks: this._checks({ kind, list: g.list, recipients, locationUnmatched: !!g.profile && g.profile.locations.length > 0 && !location, clientId: g.clientId }),
         ...mail,
       });
     }
+    await this._attachRecentSends(orgId, messages, kind);
     messages.sort((a, b) => (a.clientName || '').localeCompare(b.clientName || '') || (a.locationName || '').localeCompare(b.locationName || ''));
     return { type: 'tracker', templateId: chosen?.id || null, messages };
+  }
+
+  /**
+   * "Ready to send?" — plain problems HR can fix before copying. `error` blocks the
+   * green tick, `warn` is worth a look. Each one says what to do, not what broke.
+   */
+  _checks({ kind, list, recipients, locationUnmatched, clientId }) {
+    const checks = [];
+    const fix = clientId ? `/clients/${clientId}` : null;
+    if (!recipients.to.length) checks.push({ id: 'no_to', level: 'error', text: 'No one to send this to yet. Add a contact on the client profile.', fixTo: fix });
+    if (locationUnmatched) checks.push({ id: 'location_unmatched', level: 'warn', text: "Some candidates fit none of this client's hiring locations. Add their spelling to the right location.", fixTo: fix });
+    if (kind?.dateField) {
+      const missing = list.filter((t) => !t[kind.dateField]).length;
+      if (missing) checks.push({ id: 'no_date', level: 'warn', text: `${missing} ${missing === 1 ? 'candidate has' : 'candidates have'} no ${kind.dateField === 'lineupDate' ? 'lineup' : 'interview'} date, so the date column is empty for them.` });
+    }
+    const noPhone = list.filter((t) => !t.candidatePhone).length;
+    if (noPhone) checks.push({ id: 'no_phone', level: 'warn', text: `${noPhone} ${noPhone === 1 ? 'candidate has' : 'candidates have'} no mobile number.` });
+    return checks;
+  }
+
+  /**
+   * Has this exact mail (same kind, client, location, any of the same candidates) already been
+   * logged as sent in the last week? Tells HR before they send a duplicate.
+   */
+  async _attachRecentSends(orgId, messages, kind) {
+    const clientIds = [...new Set(messages.map((m) => m.clientId).filter(Boolean))];
+    if (!clientIds.length) return;
+    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+    const logs = await db.select({
+      clientId: schema.clientMailLog.clientId, locationId: schema.clientMailLog.locationId, mailType: schema.clientMailLog.mailType,
+      trackerIds: schema.clientMailLog.trackerIds, sentAt: schema.clientMailLog.sentAt, first: schema.user.firstName,
+    }).from(schema.clientMailLog).leftJoin(schema.user, eq(schema.user.id, schema.clientMailLog.sentBy))
+      .where(and(eq(schema.clientMailLog.organisationId, orgId), inArray(schema.clientMailLog.clientId, clientIds), gte(schema.clientMailLog.sentAt, since)));
+    for (const m of messages) {
+      const ids = new Set(m.trackerIds);
+      const hit = logs.filter((l) => l.clientId === m.clientId && (l.locationId || null) === (m.locationId || null)
+        && (l.mailType || null) === (kind?.key || null) && (l.trackerIds || []).some((id) => ids.has(id)))
+        .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))[0];
+      m.alreadySent = hit ? { at: hit.sentAt, by: hit.first || null } : null;
+    }
   }
 
   /** Locations and active contacts for each client in the mail, in two queries. */
@@ -195,7 +243,7 @@ class MailService {
    * "Mark as sent": the mail itself is pasted into HR's own mail app, so this
    * only records that it went, to whom, and which candidates it covered.
    */
-  async markSent(orgId, user, { clientId, locationId, templateId, subject, to, cc, trackerIds }) {
+  async markSent(orgId, user, { clientId, locationId, templateId, subject, to, cc, trackerIds, mailType }) {
     const ids = [...new Set(trackerIds)];
     const teamIds = visibleTeamIds(user);
     if (Array.isArray(teamIds) && teamIds.length === 0) throw new NotFoundError('Candidates not found');
@@ -215,7 +263,7 @@ class MailService {
     }
     const [row] = await db.insert(schema.clientMailLog).values({
       organisationId: orgId, clientId, locationId: locationId || null, templateId: templateId || null, sentBy: user.userId,
-      subject, toEmails: to, ccEmails: cc, trackerIds: ids, candidateCount: ids.length,
+      mailType: mailType || null, subject, toEmails: to, ccEmails: cc, trackerIds: ids, candidateCount: ids.length,
     }).returning();
     await auditWrite(orgId, user.userId, 'create', 'client_mail_log', row.id, null, row, 'mail');
     return row;

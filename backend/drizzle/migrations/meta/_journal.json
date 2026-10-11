@@ -36,6 +36,13 @@
       "when": 1791500000000,
       "tag": "0005_client_mail_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0006_mail_log_type",
+      "breakpoints": true
     }
   ]
 }

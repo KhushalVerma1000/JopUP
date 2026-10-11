@@ -12,7 +12,7 @@ import { apiFetch } from '../lib/api';
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
-  { key: 'locations', label: 'Locations & Contacts' },
+  { key: 'locations', label: 'Hiring Locations' },
   { key: 'mail', label: 'Mail settings' },
   { key: 'history', label: 'Sent history' },
 ];
@@ -81,7 +81,7 @@ export function ClientProfilePage() {
         <span className="text-foreground">{c?.companyName || '…'}</span>
       </nav>
       <PageHeader title={c?.companyName || 'Client'} subtitle={c?.industry || undefined}
-        action={canWrite && tab === 'locations' ? <Button onClick={() => setLocSheet({ open: true, location: null })}><Plus /> Add location</Button> : null} />
+        action={canWrite && tab === 'locations' ? <Button onClick={() => setLocSheet({ open: true, location: null })}><Plus /> Add hiring location</Button> : null} />
       <div role="tablist" className="mb-5 flex gap-1 overflow-x-auto border-b">
         {TABS.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
@@ -98,7 +98,7 @@ export function ClientProfilePage() {
         <Card className="grid gap-3 p-4 text-sm sm:grid-cols-2">
           <div><div className="text-xs text-muted-foreground">Primary contact</div><div>{c.contactName || '—'}{c.contactRole && ` · ${c.contactRole}`}</div><div className="text-muted-foreground">{c.contactEmail}</div></div>
           <div><div className="text-xs text-muted-foreground">Website</div><div>{c.website || '—'}</div></div>
-          <div><div className="text-xs text-muted-foreground">Locations</div><div>{locations.length}</div></div>
+          <div><div className="text-xs text-muted-foreground">Hiring locations</div><div>{locations.length}</div></div>
           <div><div className="text-xs text-muted-foreground">Status</div><div className="capitalize">{c.status.replace('_', ' ')}</div></div>
           {c.notes && <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">Notes</div><div>{c.notes}</div></div>}
         </Card>
@@ -108,8 +108,8 @@ export function ClientProfilePage() {
         <div className="grid items-start gap-5 lg:grid-cols-[1fr_320px]">
           <div className="flex flex-col gap-4">
             {locations.length === 0 && (
-              <EmptyState title="No locations yet" body="Add the client's stores or branches so each tracker mail goes to the right people with the right columns."
-                action={canWrite ? <Button onClick={() => setLocSheet({ open: true, location: null })}><Plus /> Add location</Button> : null} />
+              <EmptyState title="No hiring locations yet" body="Add the places this client wants to hire in, so each tracker mail goes to the right people with the right columns."
+                action={canWrite ? <Button onClick={() => setLocSheet({ open: true, location: null })}><Plus /> Add hiring location</Button> : null} />
             )}
             {locations.map((l) => (
               <Card key={l.id} className="p-4">
@@ -143,12 +143,12 @@ export function ClientProfilePage() {
             {canWrite && locations.length > 0 && (
               <button type="button" onClick={() => setLocSheet({ open: true, location: null })}
                 className="flex h-14 w-full items-center justify-center rounded-xl border border-dashed border-primary/40 text-sm text-primary hover:bg-primary/5">
-                + Add Location &amp; Contact
+                + Add Hiring Location &amp; Contact
               </button>
             )}
             <div className="rounded-xl border bg-card p-4">
               <div className="flex items-center justify-between gap-2">
-                <div><div className="text-sm font-medium">Client-wide contacts</div><div className="text-xs text-muted-foreground">Used when a location has no contacts of its own, or a candidate fits no store.</div></div>
+                <div><div className="text-sm font-medium">Client-wide contacts</div><div className="text-xs text-muted-foreground">Used when a location has no contacts of its own, or a candidate fits none of the hiring locations.</div></div>
                 {canWrite && <Button type="button" variant="outline" size="sm" onClick={() => setContactSheet({ open: true, contact: null, locationId: '' })}><Plus /> Add</Button>}
               </div>
               {(p.clientContacts || []).map((ct) => (
@@ -163,13 +163,13 @@ export function ClientProfilePage() {
             <p className="mt-1 text-sm text-muted-foreground">The app reads each candidate's location and fills in To, CC and the template for you.</p>
             <div className="mt-3 rounded-lg border bg-muted/40 p-3 text-sm leading-relaxed">
               Candidate location: <b className="font-medium">{locations[0]?.aliases[0] || 'Aligarh UP'}</b><br />
-              → matches <b className="font-medium">{locations[0]?.name || 'a store'}</b><br />
-              → To / CC: that store's contacts<br />
-              → Template: that store's template
+              → matches <b className="font-medium">{locations[0]?.name || 'a hiring location'}</b><br />
+              → To / CC: that location's contacts<br />
+              → Template: that location's template
             </div>
             {unmatched?.count > 0 && (
               <Notice tone="warn" className="mt-3">
-                {unmatched.count} {unmatched.count === 1 ? 'candidate has a location' : 'candidates have locations'} that match no store ({unmatched.locations.join(', ')}). Add each spelling to the right location{canWrite ? '' : ' (ask your manager)'}.
+                {unmatched.count} {unmatched.count === 1 ? 'candidate has a location' : 'candidates have locations'} that match no hiring location ({unmatched.locations.join(', ')}). Add each spelling to the right location{canWrite ? '' : ' (ask your manager)'}.
               </Notice>
             )}
           </Card>

@@ -93,7 +93,7 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
   const navigate = useNavigate();
   // Desktop opens the full Email Tracker page (the design's two panes); a phone gets the bottom sheet.
   const openTrackerMail = (ids) => {
-    if (window.matchMedia('(min-width: 1024px)').matches) { sessionStorage.setItem(TRACKER_IDS_KEY, JSON.stringify(ids)); navigate('/hr/email-tracker'); } else setTrackerMail(ids);
+    if (window.matchMedia('(min-width: 1024px)').matches) { sessionStorage.setItem(TRACKER_IDS_KEY, JSON.stringify(ids)); navigate('/email-tracker?from=hr'); } else setTrackerMail(ids);
   };
   const [mail, setMail] = useState(null);                 // { type, trackerIds, date }
   const [selecting, setSelecting] = useState(false);       // bulk selection mode

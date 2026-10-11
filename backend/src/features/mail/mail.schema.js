@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { isKnownKey } = require('./columns');
+const { isKnownType } = require('./types');
 
 // The screen already shows HR a filtered list; it sends the ids it is showing,
 // so the mail can never contain someone the HR didn't see. The server still
@@ -20,6 +21,8 @@ const composeSchema = z.object({
     // Narrow To for a mail: { "<clientId>|<locationId>": [emails] }. Only contacts already on the profile are honoured.
     toPick: z.record(z.string(), z.array(z.string().email()).max(30)).optional(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
+    // type 'tracker' only: which kind of client mail (see types.js). Sets the stages, columns and wording.
+    mailType: z.string().refine(isKnownType, 'Unknown mail type').optional(),
   }),
 });
 
@@ -33,7 +36,18 @@ const markSentSchema = z.object({
     to: z.array(email).max(30).default([]),
     cc: z.array(email).max(30).default([]),
     trackerIds: z.array(z.string().uuid('Invalid tracker ID')).min(1, 'Pick at least one candidate').max(200),
+    mailType: z.string().refine(isKnownType, 'Unknown mail type').optional(),
   }),
 });
 
-module.exports = { composeSchema, markSentSchema };
+// What each picker step offers. clientId → locations → date, each narrowing the last.
+const optionsSchema = z.object({
+  query: z.object({
+    type: z.string().refine(isKnownType, 'Unknown mail type'),
+    clientId: z.string().uuid('Invalid client ID').optional(),
+    locationId: z.union([z.string().uuid('Invalid location ID'), z.enum(['all', 'other'])]).optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
+  }),
+});
+
+module.exports = { composeSchema, markSentSchema, optionsSchema };

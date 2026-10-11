@@ -44,10 +44,10 @@ export function LocationSheet({ open, onClose, clientId, location, templates, on
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={location ? 'Edit location' : 'Add location'}
+    <Sheet open={open} onClose={onClose} title={location ? 'Edit hiring location' : 'Add hiring location'}
       description="Candidates whose location matches the name or any spelling below are mailed to this location's contacts.">
       <form onSubmit={save} className="flex flex-col gap-4">
-        <Field label="Location name" htmlFor="loc-name"><Input id="loc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Aligarh store" autoFocus required /></Field>
+        <Field label="Hiring location" htmlFor="loc-name"><Input id="loc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Aligarh" autoFocus required /></Field>
         <Field label="Matches candidate locations" htmlFor="loc-alias" hint="Other ways candidates' locations are written, e.g. Aligarh, ALG, Aligarh UP. Separate with commas.">
           <div className="flex gap-2">
             <Input id="loc-alias" value={draft} onChange={(e) => setDraft(e.target.value)}
@@ -112,10 +112,10 @@ export function ContactSheet({ open, onClose, clientId, contact, locations, pres
         <Field label="Name" htmlFor="ct-name"><Input id="ct-name" value={f.name} onChange={set('name')} autoFocus required /></Field>
         <Field label="Email" htmlFor="ct-email"><Input id="ct-email" type="email" value={f.email} onChange={set('email')} required /></Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Role at the client" htmlFor="ct-role"><Input id="ct-role" value={f.designation} onChange={set('designation')} placeholder="Store HR" /></Field>
+          <Field label="Role at the client" htmlFor="ct-role"><Input id="ct-role" value={f.designation} onChange={set('designation')} placeholder="Hiring manager" /></Field>
           <Field label="Phone" htmlFor="ct-phone"><Input id="ct-phone" value={f.phone} onChange={set('phone')} /></Field>
         </div>
-        <Field label="Location" htmlFor="ct-loc" hint="Client-wide contacts are used when a candidate's location matches no store.">
+        <Field label="Location" htmlFor="ct-loc" hint="Client-wide contacts are used when a candidate's location matches none of the client's hiring locations.">
           <NativeSelect id="ct-loc" value={f.locationId} onChange={set('locationId')}>
             <option value="">All locations (client-wide)</option>
             {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}

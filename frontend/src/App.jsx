@@ -66,7 +66,8 @@ export default function App() {
           <Route path="/analytics" element={guard(<AnalyticsPage />, pipelineArea)} />
           <Route path="/performance" element={guard(<PerformancePage />, performanceArea)} />
           <Route path="/clients" element={guard(<ClientsPage />, tenantStaff)} />
-          <Route path="/hr/email-tracker" element={guard(<EmailTrackerPage />, pipelineArea)} />
+          <Route path="/email-tracker" element={guard(<EmailTrackerPage />, pipelineArea)} />
+          <Route path="/hr/email-tracker" element={<Navigate to="/email-tracker?from=hr" replace />} />
           <Route path="/clients/:id" element={guard(<ClientProfilePage />, tenantStaff)} />
           <Route path="/employees" element={guard(<EmployeesPage />, managerArea)} />
           <Route path="/managerial" element={guard(<ManagerialPage />, managerArea)} />

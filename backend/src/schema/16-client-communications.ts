@@ -234,7 +234,7 @@ export const clientSpoc = pgTable("client_spoc", {
   isPrimary:                 boolean("is_primary").notNull().default(false),
   status:                    spocStatusEnum("status").notNull().default("active"),
   receivesTrackersByDefault: boolean("receives_trackers_by_default").notNull().default(true),
-  // Tied to one client location (store/branch). NULL = a client-wide contact,
+  // Tied to one client hiring location. NULL = a client-wide contact,
   // used when a candidate's location matches no location of the client.
   locationId:                uuid("location_id").references((): any => clientLocation.id, { onDelete: "set null" }),
   mailRole:                  spocMailRoleEnum("mail_role").notNull().default("to"),
@@ -308,7 +308,7 @@ export const trackerTemplate = pgTable("tracker_template", {
 
 /**
  * client_location
- * A store/branch of a client. `aliases` are the other spellings candidates'
+ * A place a client wants to hire in (not a store they own). `aliases` are the other spellings candidates'
  * locations arrive in ("Gurgaon", "Gurugram"); a candidate whose location
  * matches the name or an alias is mailed to this location's contacts, using
  * this location's tracker template.
@@ -343,6 +343,8 @@ export const clientMailLog = pgTable("client_mail_log", {
   templateId:       uuid("template_id").references(() => trackerTemplate.id, { onDelete: "set null" }),
   sentBy:           uuid("sent_by").notNull().references(() => user.id),
 
+  // Which kind of tracker mail this was (lineup, offer…); null for sends logged before types existed.
+  mailType:         text("mail_type"),
   subject:          text("subject").notNull(),
   toEmails:         jsonb("to_emails").notNull().default(sql`'[]'::jsonb`),
   ccEmails:         jsonb("cc_emails").notNull().default(sql`'[]'::jsonb`),

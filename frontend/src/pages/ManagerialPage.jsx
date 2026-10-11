@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, ApiError } from '../lib/api';
 import { AppLayout } from '../components/AppLayout';
+import { PageHeader, Chips } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { cn } from '@/lib/utils';
 import { TemplatesTab } from '../components/managerial/TemplatesTab';
 
 const TABS = [
@@ -23,29 +23,9 @@ export function ManagerialPage() {
   const [tab, setTab] = useState('settings');
 
   return (
-    <AppLayout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Managerial</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Org settings, teams, and invitations.</p>
-      </div>
-
-      <div className="mb-6 flex gap-1 border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
-              tab === t.key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+    <AppLayout wide>
+      <PageHeader title="Settings" subtitle="Org settings, teams, invitations and tracker templates." />
+      <Chips className="mb-5" items={TABS} value={tab} onChange={setTab} />
 
       {tab === 'settings' && <OrgSettingsTab />}
       {tab === 'teams' && <TeamsTab />}

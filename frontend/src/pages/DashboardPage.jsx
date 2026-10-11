@@ -32,7 +32,7 @@ export function DashboardPage() {
   const showChecklist = users.data && clients.data && steps.some((s) => !s.done);
 
   return (
-    <AppLayout>
+    <AppLayout wide>
       <PageHeader
         title={`Welcome, ${user.firstName}`}
         subtitle={o ? `${o.name} · ${roles.map((r) => r.roleName.replace('_', ' ')).join(', ')}` : ' '}

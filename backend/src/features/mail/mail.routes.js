@@ -14,6 +14,10 @@ router.use(requireAuth, requireModule('pipeline_tracker'));
 // trackers:read (HR already has it). Sending will get its own key.
 router.post('/compose', requirePermission('trackers', 'read'), validate(schema.composeSchema), controller.compose.bind(controller));
 
+// The Email Tracker tab: which kinds of mail exist, and what each picker step (client → location → date) offers.
+router.get('/types', requirePermission('trackers', 'read'), controller.types.bind(controller));
+router.get('/options', requirePermission('trackers', 'read'), validate(schema.optionsSchema), controller.options.bind(controller));
+
 // "Mark as sent" — HR pasted the mail into their own mail app and sent it; this logs it against the client.
 router.post('/sent', requirePermission('trackers', 'write'), validate(schema.markSentSchema), controller.markSent.bind(controller));
 

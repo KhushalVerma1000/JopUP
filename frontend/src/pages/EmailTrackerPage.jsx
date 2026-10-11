@@ -1,11 +1,14 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Copy } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
-import { ErrorNote, Notice, Loading } from '@/components/common';
+import { ErrorNote, Notice, Loading, PageHeader } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { ColumnSwitches } from '../components/mail/ColumnSwitches';
+import { MailPicker } from '../components/mail/MailPicker';
+import { ReadyChecks } from '../components/mail/ReadyChecks';
 import { useTrackerMail } from '../hooks/useTrackerMail';
 import { cn } from '@/lib/utils';
 
@@ -14,51 +17,81 @@ export const readTrackerIds = () => { try { return JSON.parse(sessionStorage.get
 
 const label = 'text-[13px] font-medium';
 
-/** Email Tracker, the full-page desktop screen: settings on the left, the mail as the client sees it on the right. */
+const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+const KEYS = ['type', 'client', 'loc', 'date'];
+
+/**
+ * Email Tracker: its own tab. Pick what you are sending, then client, hiring location and
+ * date, and the mail appears ready to copy. The HR workbench's "Email Tracker" button still
+ * lands here with its selected candidates (?from=hr) and skips the picker.
+ */
 export function EmailTrackerPage() {
-  const navigate = useNavigate();
-  const ids = readTrackerIds();
-  const m = useTrackerMail(ids, ids.length > 0);
-  const { msg, state, meta } = m;
-  const step = m.copied === 'table' || m.copied === 'cells' || m.copied === 'text' || m.isSent ? 3 : 2;
+  const [params, setParams] = useSearchParams();
+  const fromHr = params.get('from') === 'hr';
+  const value = Object.fromEntries(KEYS.map((k) => [k, params.get(k) || '']));
+  const onPick = (next) => setParams(Object.fromEntries(KEYS.filter((k) => next[k]).map((k) => [k, next[k]])), { replace: true });
+  const [ready, setReady] = useState(null);
+
+  const ids = fromHr ? readTrackerIds() : ready?.trackerIds || [];
+  const m = useTrackerMail(ids, ids.length > 0, fromHr ? {} : { mailType: ready?.kind?.key, date: value.date || undefined, clientId: value.client || undefined });
+  const { state, meta } = m;
+  const msg = ids.length > 0 ? m.msg : null;
+  const step = !ids.length ? 1 : m.copied === 'table' || m.copied === 'cells' || m.copied === 'text' || m.isSent ? 3 : 2;
   const pills = state.messages.map((x, i) => ({ i, text: [x.clientName || 'No client', state.messages.filter((y) => y.clientId === x.clientId).length > 1 ? x.locationName : null].filter(Boolean).join(' · '), n: x.candidateCount }));
   const picked = msg ? m.toPick[msg.key] : null;
   const toValue = picked?.length === 1 ? picked[0] : 'all';
+  const hasError = !!msg?.checks?.some((c) => c.level === 'error');
 
   return (
     <AppLayout wide>
-      <div className="flex items-center gap-3 text-[13px] text-muted-foreground" aria-label="Steps">
-        <b className="font-semibold text-primary">1 Pick Client</b>›
-        <b className={cn('font-semibold', step === 2 ? 'text-foreground' : 'text-primary')}>2 Review Mail</b>›
+      <PageHeader title="Email Tracker" subtitle={fromHr ? 'One mail per client. Candidates from different clients are never mixed.' : 'Pick what to send, for which client, where and when. The mail is built for you.'} />
+      <div className="mb-4 flex items-center gap-3 text-[13px] text-muted-foreground" aria-label="Steps">
+        <b className={cn('font-semibold', step === 1 ? 'text-foreground' : 'text-primary')}>1 Pick</b>›
+        <b className={cn('font-semibold', step === 2 ? 'text-foreground' : step > 2 ? 'text-primary' : 'font-normal')}>2 Review</b>›
         <span className={cn(step === 3 && 'font-semibold text-foreground')}>3 Copy &amp; Send</span>
       </div>
-      <div className="mb-4 mt-2 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Email Tracker</h1>
-          <p className="text-sm text-muted-foreground">One mail per client. Candidates from different clients are never mixed.</p>
-        </div>
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Client mails">
-          {pills.map((p) => (
-            <button key={p.i} type="button" role="tab" aria-selected={p.i === m.idx} onClick={() => m.setIdx(p.i)}
-              className={cn('inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-medium', p.i === m.idx ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-accent')}>
-              {p.text} · {p.n}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {ids.length === 0 && (
-        <Notice title="No candidates picked">Go back to the HR workbench, select candidates (or none for everyone active) and tap Email Tracker. <Link to="/hr" className="font-medium underline">HR workbench</Link></Notice>
+      {fromHr ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Built from the candidates you picked in the HR workbench. <Link to="/email-tracker" className="font-medium text-primary underline">Pick by client, location and date instead</Link></p>
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Client mails">
+            {pills.map((p) => (
+              <button key={p.i} type="button" role="tab" aria-selected={p.i === m.idx} onClick={() => m.setIdx(p.i)}
+                className={cn('inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-medium', p.i === m.idx ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-accent')}>
+                {p.text} · {p.n}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          <MailPicker value={value} onChange={onPick} onReady={setReady} />
+          {pills.length > 1 && (
+            <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Mails for this client">
+              {pills.map((p) => (
+                <button key={p.i} type="button" role="tab" aria-selected={p.i === m.idx} onClick={() => m.setIdx(p.i)}
+                  className={cn('inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-medium', p.i === m.idx ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-accent')}>
+                  {p.text} · {p.n}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {fromHr && ids.length === 0 && (
+        <Notice title="No candidates picked">Go back to the HR workbench, select candidates (or none for everyone active) and tap Email Tracker, or <Link to="/email-tracker" className="font-medium underline">pick by client, location and date</Link>.</Notice>
       )}
       <ErrorNote>{meta.error || state.error}</ErrorNote>
-      {state.loading && !msg && <Loading />}
+      {ids.length > 0 && state.loading && !msg && <Loading />}
 
       {msg && (
         <div className="grid items-start gap-5 lg:grid-cols-[340px_1fr]">
           <div className="rounded-xl border bg-card p-[18px]">
-            {msg.locationUnmatched && (
-              <Notice tone="warn" title="Some candidates fit none of this client's locations" className="mb-3">
-                They are in their own mail, using the client-wide contacts. <Link to={`/clients/${msg.clientId}`} className="font-medium underline">Fix locations</Link>
+            <ReadyChecks checks={msg.checks} className="mb-3.5" />
+            {msg.alreadySent && !m.isSent && (
+              <Notice tone="warn" title="You already sent this" className="mb-3.5">
+                {msg.alreadySent.by ? `${msg.alreadySent.by} logged` : 'It was logged'} the same mail on {when(msg.alreadySent.at)}. Sending again repeats it.
               </Notice>
             )}
             <label className={cn('mb-3.5 block', label)}>To
@@ -117,11 +150,11 @@ export function EmailTrackerPage() {
               {m.isSent ? <span className="font-medium text-emerald-700">✓ Logged as sent. It shows in this client's sent history.</span> : (
                 <>
                   After you send:
-                  <Button type="button" variant="outline" disabled={m.sending || !msg.clientId} onClick={m.markSent}>{m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
+                  <Button type="button" variant="outline" disabled={m.sending || !msg.clientId || hasError} onClick={m.markSent}>{m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
                   logs it in {msg.clientName ? `${msg.clientName}'s` : 'the'} sent history.
                 </>
               )}
-              <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => navigate('/hr')}>Back to workbench</Button>
+              {fromHr && <Link to="/hr" className="ml-auto text-[13px] font-medium text-primary hover:underline">Back to workbench</Link>}
             </div>
           </div>
         </div>

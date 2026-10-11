@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu,
+  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu, Mail,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { primaryRoleLabel } from '../lib/roles';
@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { to: '/manager', label: 'Team', icon: ClipboardList, visibleTo: (a) => !a.isPlatform && (a.isManager || a.isOrgAdmin) },
   // HR / pipeline
   { to: '/hr', label: 'Pipeline', sideLabel: 'HR workbench', icon: Briefcase, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
+  { to: '/email-tracker', label: 'Email', sideLabel: 'Email Tracker', icon: Mail, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
   { to: '/performance', label: 'Performance', icon: Target, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
   { to: '/clients', label: 'Clients', icon: Building2, visibleTo: (a) => !a.isPlatform },

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, ApiError } from '../lib/api';
 import { AppLayout } from '../components/AppLayout';
+import { PageHeader } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -121,23 +122,21 @@ export function EmployeesPage() {
   }
 
   return (
-    <AppLayout>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Employees</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Staff directory and pending access requests.</p>
-        </div>
-        <div className="w-56">
-          <NativeSelect value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
-            <option value="">All teams</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
-      </div>
+    <AppLayout wide>
+      <PageHeader
+        title="Employees"
+        subtitle="Staff directory and pending access requests."
+        action={
+          <div className="w-44 md:w-56">
+            <NativeSelect value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} aria-label="Filter by team">
+              <option value="">All teams</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </NativeSelect>
+          </div>
+        }
+      />
 
       {actionError && (
         <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
