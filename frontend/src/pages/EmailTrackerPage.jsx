@@ -34,7 +34,10 @@ export function EmailTrackerPage() {
   const [ready, setReady] = useState(null);
 
   const ids = fromHr ? readTrackerIds() : ready?.trackerIds || [];
-  const m = useTrackerMail(ids, ids.length > 0, fromHr ? {} : { mailType: ready?.kind?.key, date: value.date || undefined, clientId: value.client || undefined });
+  // From the workbench right after setting dates: the same mail type and day the picker would build.
+  const hrType = ['lineup', 'interview_schedule'].includes(params.get('type')) ? params.get('type') : undefined;
+  const hrDate = /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') || '') ? params.get('date') : undefined;
+  const m = useTrackerMail(ids, ids.length > 0, fromHr ? { mailType: hrType, date: hrType ? hrDate : undefined } : { mailType: ready?.kind?.key, date: value.date || undefined, clientId: value.client || undefined });
   const { state, meta } = m;
   const msg = ids.length > 0 ? m.msg : null;
   const step = !ids.length ? 1 : m.copied === 'table' || m.copied === 'cells' || m.copied === 'text' || m.isSent ? 3 : 2;

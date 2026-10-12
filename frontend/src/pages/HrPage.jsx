@@ -380,6 +380,12 @@ function PipelineTab({ scope, scopeKey, setScopeKey, positionFilter, setPosition
         trackers={bulk?.kind === 'dates' ? bulk.trackers : null}
         onClose={() => setBulk(null)}
         onApplied={() => { trackers.reload(); stopSelecting(); }}
+        onEmail={({ field, day, ids }) => {
+          setBulk(null);
+          if (!window.matchMedia('(min-width: 1024px)').matches) { setTrackerMail(ids); return; }
+          sessionStorage.setItem(TRACKER_IDS_KEY, JSON.stringify(ids));
+          navigate(`/email-tracker?from=hr&type=${field === 'lineupDate' ? 'lineup' : 'interview_schedule'}&date=${day}`);
+        }}
       />
       <BulkStatusSheet
         trackers={bulk?.kind === 'status' ? bulk.trackers : null}

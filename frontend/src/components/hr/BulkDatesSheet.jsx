@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock } from 'lucide-react';
+import { CalendarClock, Mail } from 'lucide-react';
 import { Sheet, ErrorNote, Field } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,8 @@ const MODES = [['same', 'Same time for everyone'], ['stagger', 'One after anothe
  * written), Apply does it. `trackers` is a snapshot in the order shown on screen,
  * which is the order "one after another" follows.
  */
-export function BulkDatesSheet({ trackers, defaultField = 'lineupDate', onClose, onApplied }) {
+// onEmail (optional): after dates are set, offer to open the matching client mail straight away.
+export function BulkDatesSheet({ trackers, defaultField = 'lineupDate', onClose, onApplied, onEmail }) {
   const [field, setField] = useState(defaultField);
   const [mode, setMode] = useState('same');
   const [day, setDay] = useState('');
@@ -97,7 +98,14 @@ export function BulkDatesSheet({ trackers, defaultField = 'lineupDate', onClose,
 
         <div className="flex gap-2">
           {final ? (
-            <Button className="flex-1" onClick={onClose}>Done</Button>
+            <>
+              <Button variant={onEmail && mode !== 'clear' && final.applied?.length ? 'outline' : 'default'} className="flex-1" onClick={onClose}>Done</Button>
+              {onEmail && mode !== 'clear' && final.applied?.length > 0 && (
+                <Button className="flex-1" onClick={() => onEmail({ field, day, ids: final.applied.map((a) => a.id) })}>
+                  <Mail /> Email this {field === 'lineupDate' ? 'lineup' : 'schedule'}
+                </Button>
+              )}
+            </>
           ) : (
             <>
               <Button type="button" variant="outline" className="flex-1" disabled={busy || !valid} onClick={() => run(true)}>{busy && !preview ? 'Checking…' : 'Preview'}</Button>
