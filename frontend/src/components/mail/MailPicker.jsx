@@ -89,7 +89,9 @@ export function MailPicker({ value, onChange, onReady }) {
           {opts.loading && !o && <Loading />}
           {o && o.clients.length === 0 && (
             <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">
-              No candidates fit a {kind.label.toLowerCase()} mail yet. Tag candidates to a client's open position and they will show up here.
+              {o.undated > 0
+                ? `${o.undated} ${o.undated === 1 ? 'candidate has' : 'candidates have'} no ${kind.key === 'lineup' ? 'lineup' : 'interview'} date yet. Set dates in the HR workbench and they will show up here.`
+                : `No candidates fit a ${kind.label.toLowerCase()} mail yet. Tag candidates to a client's open position and they will show up here.`}
             </p>
           )}
           {o && o.clients.length > 0 && (

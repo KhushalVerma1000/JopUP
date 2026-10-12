@@ -30,13 +30,13 @@ test('every registered mail type is well formed and uses real columns', () => {
 
 test('step 1 lists only clients with candidates, never internal hires', () => {
   const o = opt({});
-  assert.deepEqual(o.clients.map((c) => [c.name, c.count]), [['Acme', 5], ['Beta', 1]]);
+  assert.deepEqual(o.clients.map((c) => [c.name, c.count]), [['Acme', 4], ['Beta', 1]]);
   assert.deepEqual(o.locations, []);
 });
 
 test('step 2 groups one client\'s candidates by hiring location; unmatched are shown, not hidden', () => {
   const o = opt({ clientId: A });
-  assert.deepEqual(o.locations.map((l) => [l.id, l.count]), [[ALL, 5], ['alg', 3], ['noi', 1], [OTHER, 1]]);
+  assert.deepEqual(o.locations.map((l) => [l.id, l.count]), [[ALL, 4], ['alg', 2], ['noi', 1], [OTHER, 1]]);
   assert.ok(o.locations.find((l) => l.id === OTHER).unmatched);
   assert.ok(!JSON.stringify(o).includes('"5"'), "Beta's candidate never shows up under Acme");
 });
@@ -44,7 +44,7 @@ test('step 2 groups one client\'s candidates by hiring location; unmatched are s
 test('step 3 offers the days that have candidates, in order, and counts undated ones', () => {
   const o = opt({ clientId: A, locationId: 'alg' });
   assert.deepEqual(o.dates, [{ date: '2026-10-14', count: 2 }]);
-  assert.equal(o.undated, 1);
+  assert.equal(o.undated, 1, 'one Acme candidate has no lineup date: reported, not counted');
   assert.deepEqual(opt({ clientId: A, locationId: ALL }).dates.map((d) => d.date), ['2026-10-14', '2026-10-15']);
 });
 

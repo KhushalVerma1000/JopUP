@@ -21,18 +21,23 @@ function buildOptions({ type, trackers, profiles, clientId, locationId, date, tz
     if (type.stages && !type.stages.includes(t.currentStage?.stageKey)) return false;
     return !!t.clientId; // client mails are about a client's candidates; internal hires have no one to mail
   });
+  // A mail about a day can only list candidates who have that date. Counts at every step count
+  // only those, so a number on a chip is exactly how many will be in the mail; the rest are
+  // reported as `undated` so HR knows why someone is missing.
+  const usable = type.dateField ? eligible.filter((t) => t[type.dateField]) : eligible;
+  const undatedOf = (cid) => (type.dateField ? eligible.filter((t) => !t[type.dateField] && (!cid || t.clientId === cid)).length : 0);
 
   // Step 1: clients
   const byClient = new Map();
-  for (const t of eligible) {
+  for (const t of usable) {
     if (!byClient.has(t.clientId)) byClient.set(t.clientId, { id: t.clientId, name: t.clientName || 'Client', count: 0 });
     byClient.get(t.clientId).count += 1;
   }
-  const out = { type: type.key, clients: [...byClient.values()].sort((a, b) => a.name.localeCompare(b.name)), locations: [], dates: [], undated: 0, trackerIds: [] };
+  const out = { type: type.key, clients: [...byClient.values()].sort((a, b) => a.name.localeCompare(b.name)), locations: [], dates: [], undated: undatedOf(clientId), trackerIds: [] };
   if (!clientId) return out;
 
   // Step 2: the client's hiring locations (only ones that have candidates for this mail)
-  const mine = eligible.filter((t) => t.clientId === clientId);
+  const mine = usable.filter((t) => t.clientId === clientId);
   const locs = profiles.get(clientId)?.locations || [];
   const placeOf = (t) => matchLocation(t.candidateLocation, locs) || OTHER;
   const byLoc = new Map();
@@ -49,8 +54,7 @@ function buildOptions({ type, trackers, profiles, clientId, locationId, date, tz
 
   // Step 3: dates, only for mails that are about a day
   if (type.dateField) {
-    const dated = inLocation.filter((t) => t[type.dateField]);
-    out.undated = inLocation.length - dated.length;
+    const dated = inLocation;
     const byDay = new Map();
     for (const t of dated) { const d = localDate(new Date(t[type.dateField]), tz); byDay.set(d, (byDay.get(d) || 0) + 1); }
     out.dates = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, count]) => ({ date: d, count }));
