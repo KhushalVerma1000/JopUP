@@ -1,1 +1,0 @@
-ALTER TABLE "candidate" ALTER COLUMN "created_by" DROP NOT NULL;
