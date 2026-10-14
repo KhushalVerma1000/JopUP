@@ -351,7 +351,14 @@ class TrackersService {
     }
 
     await auditWrite(orgId, userId, 'update', 'candidate_tracker', trackerId, before, updated, 'pipeline');
-    return updated;
+
+    // Setting a lineup / interview date can move the candidate forward (manager's automation rules).
+    const automation = require('../automation/automation.service'); // lazy: automation calls back into this service
+    let auto = null;
+    for (const field of ['lineupDate', 'interviewDate']) {
+      if (data[field]) auto = (await automation.run(orgId, userId, 'date_set', field, [trackerId])) || auto;
+    }
+    return auto ? { ...updated, automation: auto } : updated;
   }
 
   async getCurrentStage(trackerId) {

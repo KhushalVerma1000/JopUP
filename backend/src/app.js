@@ -26,6 +26,7 @@ const analyticsRoutes = require('./features/analytics/analytics.routes');
 const creditsRoutes = require('./features/credits/credits.routes');
 const platformRoutes = require('./features/platform/platform.routes');
 const portalRoutes = require('./features/job-portal/job-portal.routes');
+const automationRoutes = require('./features/automation/automation.routes');
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api/v1/applications', applicationsRoutes);
 app.use('/api/v1/trackers', trackersRoutes);
 app.use('/api/v1/daily-trackers', dailyTrackersRoutes);
 app.use('/api/v1/mail', mailRoutes);
+app.use('/api/v1/automation', automationRoutes);
 app.use('/api/v1/performance', performanceRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/credits', creditsRoutes);

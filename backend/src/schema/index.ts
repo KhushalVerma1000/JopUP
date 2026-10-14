@@ -231,3 +231,6 @@ export {
   dailyTrackerSchedule,
   dailyTrackerRun,
 } from "./19-daily-tracker";
+
+// ── 20 · Pipeline automation rules ────────────
+export { automationRule } from "./20-automation";

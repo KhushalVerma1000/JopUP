@@ -2,6 +2,7 @@ const { db, schema } = require('../../utils/db');
 const { and, eq, inArray, gte } = require('drizzle-orm');
 const { NotFoundError, BadRequestError } = require('../../utils/errors');
 const { visibleTeamIds } = require('../../utils/teamScope');
+const automation = require('../automation/automation.service');
 const trackersService = require('../trackers/trackers.service');
 const { assertSingleClient } = require('./clientScope');
 const { matchLocation } = require('./locationMatch');
@@ -266,7 +267,9 @@ class MailService {
       mailType: mailType || null, subject, toEmails: to, ccEmails: cc, trackerIds: ids, candidateCount: ids.length,
     }).returning();
     await auditWrite(orgId, user.userId, 'create', 'client_mail_log', row.id, null, row, 'mail');
-    return row;
+    // Marking a mail as sent can move those candidates forward (manager's automation rules).
+    const auto = mailType ? await automation.run(orgId, user.userId, 'mail_sent', mailType, ids) : null;
+    return auto ? { ...row, automation: auto } : row;
   }
 
   async _interviewReminders(trackers, ctx) {

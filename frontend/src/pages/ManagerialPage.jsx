@@ -11,12 +11,14 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { TemplatesTab } from '../components/managerial/TemplatesTab';
+import { AutomationTab } from '../components/managerial/AutomationTab';
 
 const TABS = [
   { key: 'settings', label: 'Org settings' },
   { key: 'teams', label: 'Teams' },
   { key: 'invitations', label: 'Invitations' },
   { key: 'templates', label: 'Tracker templates' },
+  { key: 'automation', label: 'Automation' },
 ];
 
 export function ManagerialPage() {
@@ -24,13 +26,14 @@ export function ManagerialPage() {
 
   return (
     <AppLayout wide>
-      <PageHeader title="Settings" subtitle="Org settings, teams, invitations and tracker templates." />
+      <PageHeader title="Settings" subtitle="Org settings, teams, invitations, tracker templates and automation." />
       <Chips className="mb-5" items={TABS} value={tab} onChange={setTab} />
 
       {tab === 'settings' && <OrgSettingsTab />}
       {tab === 'teams' && <TeamsTab />}
       {tab === 'invitations' && <InvitationsTab />}
       {tab === 'templates' && <TemplatesTab />}
+      {tab === 'automation' && <AutomationTab />}
     </AppLayout>
   );
 }

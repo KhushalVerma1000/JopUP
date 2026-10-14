@@ -4,6 +4,7 @@ const { BadRequestError } = require('../../utils/errors');
 const { canSeeTeam, canActOnTeam } = require('../../utils/teamScope');
 const { auditWrite } = require('../../utils/audit');
 const trackersService = require('./trackers.service');
+const automation = require('../automation/automation.service');
 
 const OPEN = ['active', 'on_hold'];
 const say = (status) => String(status).replace('_', ' ');
@@ -102,7 +103,10 @@ class TrackersBulkService {
         await auditWrite(orgId, user.userId, 'update', 'candidate_tracker', p.id, { [field]: before.get(p.id)[field] }, { [field]: p.value }, 'pipeline', { bulk: true });
       }
     }
-    return { dryRun: Boolean(dryRun), field, ...this._shape(plan, nameById, refused, (p) => ({ value: p.value ? p.value.toISOString() : null })) };
+    // A date that was set (not cleared) can move candidates forward, if the manager switched that rule on.
+    const automationResult = !dryRun && mode !== 'clear'
+      ? await automation.run(orgId, user.userId, 'date_set', field, plan.filter((p) => !p.skip).map((p) => p.id)) : null;
+    return { dryRun: Boolean(dryRun), field, ...this._shape(plan, nameById, refused, (p) => ({ value: p.value ? p.value.toISOString() : null })), automation: automationResult };
   }
 
   async setStatus(orgId, user, { trackerIds, action, nextStageId, note, reason, dryRun }) {
