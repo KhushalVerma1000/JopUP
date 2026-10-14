@@ -26,6 +26,7 @@ const WARNING_LABELS = {
   no_skills_found: 'No skills found',
   duplicate_in_batch: 'Same person appears twice in this upload',
   already_in_database: 'Already in your database',
+  ocr_verify_contact: 'Read from an image — check phone & email',
 };
 // Warnings that make a row start unticked, so nothing risky is created by accident.
 const BLOCKING = new Set(['duplicate_in_batch', 'already_in_database', 'missing_name']);
@@ -261,6 +262,12 @@ export function ResumeImportSheet({ open, teams, onClose, onDone }) {
                               </Badge>
                             ))}
                           </div>
+                        )}
+                        {d.parsedResume?.experienceYears != null && (
+                          <p className="mt-1.5 text-xs text-muted-foreground">
+                            Experience: {d.parsedResume.experienceSource === 'estimated' ? '~' : ''}{d.parsedResume.experienceYears} yrs
+                            {d.parsedResume.experienceSource === 'estimated' ? ' (estimated from dates)' : ''}
+                          </p>
                         )}
                         {d.existing && <p className="mt-1.5 text-xs text-muted-foreground">Matches {[d.existing.firstName, d.existing.lastName].filter(Boolean).join(' ')}{d.existing.email ? ` (${d.existing.email})` : ''}</p>}
                       </div>

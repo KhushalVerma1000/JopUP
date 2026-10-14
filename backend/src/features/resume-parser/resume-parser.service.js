@@ -1,12 +1,13 @@
 const { db, schema } = require('../../utils/db');
 const { and, eq, inArray } = require('drizzle-orm');
-const { extractText, ExtractError } = require('./extract');
+const path = require('path');
+const { extractText, extractImageHeaderInverted, ExtractError, IMAGE_EXT } = require('./extract');
 const { parseResumeText } = require('./fields');
 const { normalizePhone } = require('../../utils/phone');
 const candidatesService = require('../candidates/candidates.service');
 const { PossibleDuplicateError, ConflictError } = require('../../utils/errors');
 
-const PARSER_VERSION = 'rules-1';
+const PARSER_VERSION = 'rules-2';
 const RAW_TEXT_CAP = 20000;
 
 /** Parse a single uploaded file into a candidate draft. Never throws. */
@@ -14,8 +15,20 @@ async function parseFile(file, opts = {}) {
   const base = { fileName: file.originalname, size: file.size };
   try {
     const { text, method } = await extractText(file.buffer, file.originalname);
-    const parsed = parseResumeText(text, opts);
+    let parsed = parseResumeText(text, opts);
+    // Light-on-dark banner names are invisible to the normal OCR pass: retry the header inverted.
+    const noRealName = !parsed.candidate.firstName || parsed.warnings.includes('name_guessed_from_email');
+    if (method === 'ocr' && noRealName && IMAGE_EXT.has(path.extname(file.originalname).toLowerCase())) {
+      try {
+        const head = await extractImageHeaderInverted(file.buffer);
+        const retry = parseResumeText(`${head}\n${text}`, opts);
+        if (retry.candidate.firstName && !retry.warnings.includes('name_guessed_from_email')) parsed = retry;
+      } catch { /* keep the first pass */ }
+    }
     const c = parsed.candidate;
+    // OCR can misread a digit or a letter without any sign of it, so contact
+    // details from an image are always flagged for a human check.
+    if (method.includes('ocr')) parsed.warnings.push('ocr_verify_contact');
     const complete = Boolean(c.firstName && (c.email || c.phone));
     return {
       ...base,
@@ -26,6 +39,7 @@ async function parseFile(file, opts = {}) {
         parserVersion: PARSER_VERSION,
         extractMethod: method,
         experienceYears: parsed.experienceYears,
+        experienceSource: parsed.experienceSource,
         sourceFileName: file.originalname,
         rawText: text.slice(0, RAW_TEXT_CAP),
       },

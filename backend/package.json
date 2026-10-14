@@ -18,6 +18,7 @@
     "provision:owner": "tsx scripts/provision-owner.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
     "@tesseract.js-data/eng": "^1.0.0",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.7",
@@ -32,6 +33,7 @@
     "nodemon": "^3.1.14",
     "pdfjs-dist": "^4.10.38",
     "pg": "^8.13.3",
+    "sharp": "^0.35.5",
     "tesseract.js": "^7.0.0",
     "uuid": "^14.0.1",
     "word-extractor": "^1.0.4",

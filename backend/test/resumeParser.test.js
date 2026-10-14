@@ -11,6 +11,7 @@ const { parseFile, parseMany } = require('../src/features/resume-parser/resume-p
 const app = require('../src/app');
 
 const FIX = path.join(__dirname, 'fixtures', 'resumes');
+const NOW = new Date(2026, 9, 14); // fixed so date-range estimates do not drift with the calendar
 const read = (f) => fs.readFileSync(path.join(FIX, f));
 
 test.after(async () => { await terminateOcrWorker(); });
@@ -21,7 +22,7 @@ for (const [file, method, first, last, email, phone] of [
   ['rahul_sharma.pdf', 'pdf-text', 'Rahul', 'Sharma', 'rahul.sharma92@gmail.com', '+91 98765 43210'],
   ['priya_verma.docx', 'docx', 'Priya', 'Verma', 'priya.verma@outlook.com', '+91 98123 45678'],
   ['priya_verma_legacy.doc', 'doc', 'Priya', 'Verma', 'priya.verma@outlook.com', '+91 98123 45678'],
-  ['amit_singh.png', 'ocr', 'Amit', 'Kumar Singh', 'amit.singh.hr@yahoo.com', '+91 91234 56789'],
+  ['amit_singh.png', 'ocr', 'Amit Kumar', 'Singh', 'amit.singh.hr@yahoo.com', '+91 91234 56789'],
 ]) {
   test(`parses ${file} via ${method}`, async () => {
     const { text, method: m } = await extractText(read(file), file);
@@ -46,8 +47,100 @@ test('PDF fixture also yields linkedin, location, skills and experience', async 
   }
 });
 
-test('scanned PDF with no text layer is reported as needs_ocr', async () => {
-  await assert.rejects(() => extractText(read('scanned_no_text_layer.pdf'), 'scan.pdf'), (e) => e instanceof ExtractError && e.code === 'needs_ocr');
+test('scanned PDF (no text layer) is rendered and OCR-read', async () => {
+  const { text, method } = await extractText(read('scanned_no_text_layer.pdf'), 'scan.pdf');
+  assert.equal(method, 'pdf-ocr');
+  const r = parseResumeText(text, { defaultCountry: 'IN' });
+  assert.equal(r.candidate.email, 'amit.singh.hr@yahoo.com');
+  assert.equal(r.candidate.phone, '+91 91234 56789');
+});
+
+test('OCR-derived drafts are always flagged to verify phone/email', async () => {
+  const img = await parseFile({ originalname: 'amit_singh.png', size: 1, buffer: read('amit_singh.png') }, { defaultCountry: 'IN' });
+  assert.ok(img.warnings.includes('ocr_verify_contact'));
+  const scan = await parseFile({ originalname: 's.pdf', size: 1, buffer: read('scanned_no_text_layer.pdf') }, { defaultCountry: 'IN' });
+  assert.ok(scan.warnings.includes('ocr_verify_contact'));
+  const text = await parseFile({ originalname: 'p.docx', size: 1, buffer: read('priya_verma.docx') }, { defaultCountry: 'IN' });
+  assert.ok(!text.warnings.includes('ocr_verify_contact'));
+});
+
+// ---------- regressions found on real resumes (synthetic stand-ins, no personal data) ----------
+
+test('two-column PDF keeps column order: name, phone, address city/state read correctly', async () => {
+  const { text } = await extractText(read('two_column_sidebar.pdf'), 'two_column_sidebar.pdf');
+  const r = parseResumeText(text, { defaultCountry: 'IN', now: NOW });
+  assert.equal(r.candidate.firstName, 'Meera');
+  assert.equal(r.candidate.lastName, 'Iyer');
+  assert.equal(r.candidate.phone, '+91 98111 22233');
+  assert.equal(r.candidate.location, 'Sangrur, Punjab');
+  assert.ok(r.candidate.skills.includes('Channel Sales'));
+  assert.ok(r.candidate.skills.includes('Cross-selling'));
+});
+
+test('designer image: light name on a dark banner is recovered by the inverted-header retry', async () => {
+  const r = await parseFile({ originalname: 'designer_header.png', size: 1, buffer: read('designer_header.png') }, { defaultCountry: 'IN', now: NOW });
+  assert.equal(r.candidate.firstName, 'Anita');
+  assert.equal(r.candidate.lastName, 'Desai');
+  assert.equal(r.candidate.phone, '+91 98222 33344');
+  assert.equal(r.candidate.location, 'Pune');
+  assert.equal(r.parsedResume.experienceYears, 3);
+  assert.ok(!r.warnings.includes('name_guessed_from_email'));
+});
+
+test('name: neighbouring column text and OCR debris are trimmed', () => {
+  const a = parseResumeText('Name : Himanshu patel and belief.\nMobile: 8173807034\n', { defaultCountry: 'IN' });
+  assert.equal(a.candidate.firstName, 'Himanshu');
+  assert.equal(a.candidate.lastName, 'Patel');
+  const b = parseResumeText('Z| SURYA PRAKASH a\n: As Bh, WE\nBl  KUSHWAHA 8\nPhone 8738926973\n', { defaultCountry: 'IN' });
+  assert.equal(b.candidate.firstName, 'Surya Prakash');
+  assert.equal(b.candidate.lastName, 'Kushwaha');
+  const c = parseResumeText('Krishan Kumar §\n7357250454 4;\nSKILLS\nLoan Processing, Document Verification, MS Excel\n', { defaultCountry: 'IN' });
+  assert.equal(c.candidate.firstName, 'Krishan');
+  assert.equal(c.candidate.lastName, 'Kumar');
+});
+
+test('a skills phrase is never taken as the name', () => {
+  const r = parseResumeText('Loan Processing, Document Verification\nrandom.person@mail.com\n');
+  assert.notEqual(r.candidate.firstName, 'Loan');
+});
+
+test('location: inline "Location:" in a contact strip beats a wrapped Current Address', () => {
+  const r = parseResumeText('RAVI SINGH\nEmail: r@x.com • Phone: +91 7678288781 • Location: Nagpur\nCurrent Address: CN 224, Near Govt. School, 8\nMahal, Nagpur, Maharashtra\nPermanent Address: Sanjay Colony, Faridabad, Haryana\n', { defaultCountry: 'IN' });
+  assert.equal(r.candidate.location, 'Nagpur');
+});
+
+test('location: district fallback for rural addresses', () => {
+  const r = parseResumeText('Address: Village - Mehara, Post - Nangliya, teh- Khetri, dist- jhunjhunu ( Raj) PIN code - 333035\n');
+  assert.equal(r.candidate.location, 'Jhunjhunu');
+});
+
+test('experience: stated figures win; per-employer figures are summed', () => {
+  assert.equal(parseResumeText('Over 5+ years of hands-on experience in B2B sales').experienceYears, 5);
+  const r = parseResumeText('1 year experience in Flipkart Wholesale (B2B)\n1.5 year experience in Udaan (FMCG)\n');
+  assert.equal(r.experienceYears, 2.5);
+  assert.equal(r.experienceSource, 'stated');
+});
+
+test('experience: estimated from job date ranges (union, so overlaps and gaps are handled)', () => {
+  const text = [
+    'Senior Recruiter | Alpha Pvt Ltd', 'Feb 2022 – Jan 2025',
+    'Recruiter | Beta Pvt Ltd', 'Dec 2024 – Present',
+    'B.Tech Computer Science, Some University', 'Sept 2014 – Aug 2018',
+  ].join('\n');
+  const r = parseResumeText(text, { now: NOW });
+  assert.equal(r.experienceSource, 'estimated');
+  assert.equal(r.experienceYears, 5); // Feb 2022 -> Oct 2026 is 57 months (4.75y, rounded to 0.5); degree dates ignored
+});
+
+test('experience: fresher with only an internship and a degree has none', () => {
+  const text = ['Java Full Stack Developer Intern', 'DUCAT, Noida | [Feb-2026] – [Aug-2026]', 'Bachelor of Technology (BTech) Sept 2022 – Aug 2026'].join('\n');
+  assert.equal(parseResumeText(text, { now: NOW }).experienceYears, null);
+});
+
+test('experience: dd/mm/yyyy and "till date" ranges', () => {
+  const r = parseResumeText('18/01/2021 - 18/01/2023 IIFL\n8/10/2023 - 04/06/2024 Moneyboxx\n05/06/2024 - Till Date Digivriddhi\n', { now: NOW });
+  assert.equal(r.experienceSource, 'estimated');
+  assert.ok(r.experienceYears >= 4.5 && r.experienceYears <= 5.5, String(r.experienceYears));
 });
 
 test('unsupported extension and corrupt file are per-file failures, not crashes', async () => {
@@ -86,7 +179,7 @@ test('missing contact details are surfaced as warnings', () => {
 });
 
 test('ambiguous skills (Go, R, C) only match inside skill lists, not prose', () => {
-  const prose = 'I will go to the office and report to the manager. Excel in teamwork. Express interest.';
+  const prose = 'I will go to the office and report to the manager. Excel in sports. Express interest.';
   assert.deepEqual(extractSkills(prose, cleanLines(prose)), []);
   const list = 'Skills: Python, Go, R, C, SQL';
   const s = extractSkills(list, cleanLines(list));

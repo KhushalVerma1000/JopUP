@@ -43,11 +43,40 @@ const SKILLS = [
   'Recruitment', 'Talent Acquisition', 'Sourcing', 'Screening', 'Onboarding', 'Employee Engagement',
   'HR Operations', 'Payroll Processing', 'Performance Management', 'Applicant Tracking System',
   'Supply Chain', 'Logistics', 'Inventory Management', 'Procurement', 'Operations Management', 'MS Office',
+  // Banking / finance / insurance / loans
+  'Loan Processing', 'Loan Disbursement', 'Loan Documentation', 'Microfinance', 'KYC', 'Document Verification',
+  'EMI Collection', 'Collections', 'Credit Appraisal', 'Underwriting', 'Insurance Sales', 'Life Insurance',
+  'General Insurance', 'Channel Sales', 'Bancassurance', 'Cross-selling', 'CASA', 'Retail Banking', 'Mutual Funds',
+  'Wealth Management', 'Branch Management', 'Team Handling', 'Team Management', 'Customer Counselling',
+  'Back Office', 'Data Entry', 'MIS Reporting', 'Group Formation',
+  // Field sales / FMCG / auto
+  'Field Sales', 'FMCG', 'Retail Sales', 'Primary Sales', 'Secondary Sales', 'Distributor Management',
+  'Dealer Management', 'Dealer Network Development', 'Territory Management', 'Territory Expansion',
+  'Market Development', 'Market Expansion', 'Order Generation', 'Payment Collection', 'Beat Planning',
+  'Key Account Management', 'Channel Partner Management', 'Target Achievement', 'Sales Reporting',
+  'Competitor Analysis', 'Retailer Handling', 'Spare Parts', 'Automotive Sales', 'Inside Sales', 'Telesales',
+  'Customer Acquisition', 'Relationship Management', 'Lead Conversion', 'Customer Handling',
+  // HR / recruitment
+  'End-to-End Recruitment', 'Blue-Collar Hiring', 'Bulk Hiring', 'Interview Coordination', 'Employer Branding',
+  'Recruitment MIS', 'LinkedIn Recruiter', 'Naukri', 'Job Portals', 'Offer Management', 'Background Verification',
+  'Attendance Management', 'Statutory Compliance', 'ESIC', 'Joining Formalities', 'Exit Interviews',
+  // General office / other
+  'Teamwork', 'Documentation', 'Report Making', 'Computer Hardware', 'Networking', 'Tally ERP', 'Typing',
+  'MS Word', 'MS PowerPoint', 'AutoCAD', 'Quick Learning', 'RS-CIT',
   'Communication Skills', 'Team Leadership', 'Leadership', 'Stakeholder Management', 'Time Management',
   'Problem Solving',
 ];
 
 const ALIASES = {
+  tailwindcss: 'Tailwind CSS', 'tailwind css': 'Tailwind CSS', 'loan documentation': 'Loan Documentation',
+  'end to end recruitment': 'End-to-End Recruitment', 'blue collar hiring': 'Blue-Collar Hiring',
+  'blue-collar recruitment': 'Blue-Collar Hiring', 'blue collar recruitment': 'Blue-Collar Hiring',
+  'bulk recruitment': 'Bulk Hiring', 'multi-location hiring': 'Bulk Hiring', 'cross selling': 'Cross-selling',
+  'team handling': 'Team Handling', 'channel partner': 'Channel Partner Management', 'tally': 'Tally ERP',
+  'recruitment trackers': 'Recruitment MIS', 'mis': 'MIS Reporting', 'kyc verification': 'KYC',
+  'fast moving consumer goods': 'FMCG', 'auto spare parts': 'Spare Parts', 'automotive spare parts': 'Spare Parts',
+  'dealer & distributor management': 'Distributor Management', 'distributor handling': 'Distributor Management',
+  'primary & secondary sales': 'Primary Sales', 'market coverage': 'Market Expansion',
   js: 'JavaScript', ecmascript: 'JavaScript', ts: 'TypeScript', py: 'Python', golang: 'Go', 'c plus plus': 'C++',
   reactjs: 'React', 'react.js': 'React', nextjs: 'Next.js', 'next js': 'Next.js', vuejs: 'Vue.js', 'vue': 'Vue.js',
   angularjs: 'Angular', nodejs: 'Node.js', 'node js': 'Node.js', node: 'Node.js', expressjs: 'Express',

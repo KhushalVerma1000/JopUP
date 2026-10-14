@@ -3,9 +3,10 @@
  *   PDF (text layer)  -> pdfjs-dist
  *   DOCX              -> mammoth
  *   DOC (legacy)      -> word-extractor
- *   PNG/JPG/TIFF/BMP  -> tesseract.js OCR (English, bundled traineddata)
- * Scanned PDFs (no text layer) are reported as needs_ocr; rasterising PDF pages
- * for OCR is a deliberate phase-2 item.
+ *   PNG/JPG/TIFF/BMP  -> sharp preprocessing + tesseract.js OCR (English, bundled traineddata)
+ *   Scanned PDF       -> pages rendered with pdfjs + @napi-rs/canvas, then the same OCR
+ * OCR output is never fully trustworthy (a wrong phone digit is possible), so
+ * callers flag every OCR-derived draft for human verification.
  */
 const path = require('path');
 
@@ -13,6 +14,8 @@ const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']);
 const SUPPORTED_EXT = new Set(['.pdf', '.docx', '.doc', ...IMAGE_EXT]);
 const MIN_PDF_TEXT_CHARS = 40;
 const MAX_PDF_PAGES = 15;
+const MAX_OCR_PDF_PAGES = 3;
+const OCR_TARGET_WIDTH = 2048; // upscaling to ~2000px wide measurably fixes digit/letter errors on phone photos
 
 class ExtractError extends Error {
   constructor(code, message) {
@@ -55,42 +58,82 @@ async function extractPdf(buffer) {
     throw new ExtractError('corrupt_file', `Could not read PDF: ${err.message}`);
   }
 
-  const pages = [];
   try {
-    for (let p = 1; p <= Math.min(pdf.numPages, MAX_PDF_PAGES); p++) {
-      const page = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      pages.push(linesFromItems(content.items));
+    const pages = [];
+    try {
+      for (let p = 1; p <= Math.min(pdf.numPages, MAX_PDF_PAGES); p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        pages.push(linesFromItems(content.items));
+      }
+    } catch (err) {
+      throw new ExtractError('corrupt_file', `Could not read PDF: ${err.message}`);
     }
-  } catch (err) {
-    throw new ExtractError('corrupt_file', `Could not read PDF: ${err.message}`);
+
+    const text = pages.join('\n').trim();
+    if (text.length >= MIN_PDF_TEXT_CHARS) return { text, method: 'pdf-text' };
+
+    // No text layer: a scanned PDF. Render the first pages and OCR them.
+    return { text: await ocrPdfPages(pdf), method: 'pdf-ocr' };
   } finally {
     await pdf.destroy().catch(() => {});
   }
-
-  const text = pages.join('\n').trim();
-  if (text.length < MIN_PDF_TEXT_CHARS) {
-    throw new ExtractError('needs_ocr', 'PDF has no readable text layer (scanned?). Upload as an image or a text-based PDF.');
-  }
-  return { text, method: 'pdf-text' };
 }
 
-/** Rebuild reading-order lines from positioned text items (y desc, x asc). */
+/**
+ * Rebuild lines from positioned text items in the PDF's own stream order.
+ * Stream order keeps multi-column layouts intact (left column, then right
+ * column); sorting by y instead would interleave the columns line by line.
+ * A new line starts when the baseline moves; items on one baseline are joined,
+ * with a space only where there is a visible gap.
+ */
 function linesFromItems(items) {
-  const rows = [];
+  const lines = [];
+  let cur = '';
+  let curY = null;
+  let prevEnd = null;
+  const flush = () => { if (cur.trim()) lines.push(cur.replace(/\s+/g, ' ').trim()); cur = ''; prevEnd = null; };
+
   for (const it of items) {
-    if (!it.str || !it.str.trim()) continue;
+    if (typeof it.str !== 'string') continue;
     const x = it.transform[4];
     const y = it.transform[5];
-    const tol = Math.max(2, (it.height || 10) * 0.4);
-    let row = rows.find(r => Math.abs(r.y - y) <= tol);
-    if (!row) { row = { y, parts: [] }; rows.push(row); }
-    row.parts.push({ x, str: it.str });
+    const h = it.height || Math.abs(it.transform[3]) || 10;
+    if (curY !== null && Math.abs(y - curY) > Math.max(2, h * 0.5)) flush();
+    if (it.str.length) {
+      const gap = prevEnd === null ? 0 : x - prevEnd;
+      const needsSpace = cur && gap > Math.max(1, h * 0.15) && !/\s$/.test(cur) && !/^\s/.test(it.str);
+      cur += (needsSpace ? ' ' : '') + it.str;
+      prevEnd = x + (it.width || 0);
+      curY = y;
+    }
+    if (it.hasEOL) { flush(); curY = null; }
   }
-  return rows
-    .sort((a, b) => b.y - a.y)
-    .map(r => r.parts.sort((a, b) => a.x - b.x).map(p => p.str).join(' ').replace(/\s+/g, ' ').trim())
-    .join('\n');
+  flush();
+  return lines.join('\n');
+}
+
+async function ocrPdfPages(pdf) {
+  let factory;
+  try { factory = pdf.canvasFactory; } catch { factory = null; }
+  if (!factory) throw new ExtractError('needs_ocr', 'PDF has no readable text layer and could not be rendered for OCR.');
+  const out = [];
+  try {
+    for (let p = 1; p <= Math.min(pdf.numPages, MAX_OCR_PDF_PAGES); p++) {
+      const page = await pdf.getPage(p);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: OCR_TARGET_WIDTH / base.width });
+      const { canvas, context } = factory.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      await page.render({ canvasContext: context, viewport }).promise;
+      const png = canvas.toBuffer('image/png');
+      factory.destroy({ canvas, context });
+      out.push((await recognize(png, { preprocess: false })).trim());
+    }
+  } catch (err) {
+    if (err instanceof ExtractError) throw err;
+    throw new ExtractError('ocr_failed', `OCR failed: ${err.message}`);
+  }
+  return out.filter(Boolean).join('\n');
 }
 
 async function extractDocx(buffer) {
@@ -113,11 +156,51 @@ async function extractDoc(buffer) {
   }
 }
 
+/** Clean up a photo/screenshot for OCR: honour EXIF rotation, greyscale, stretch contrast, upscale. */
+async function preprocessForOcr(buffer) {
+  const sharp = require('sharp');
+  return sharp(buffer)
+    .rotate()
+    .resize({ width: OCR_TARGET_WIDTH, withoutEnlargement: false })
+    .grayscale()
+    .normalise()
+    .sharpen()
+    .png()
+    .toBuffer();
+}
+
+async function recognize(buffer, { preprocess = true } = {}) {
+  const worker = await getOcrWorker();
+  const input = preprocess ? await preprocessForOcr(buffer) : buffer;
+  const { data } = await worker.recognize(input);
+  return data.text || '';
+}
+
+/**
+ * Second chance for designer resumes with light text on a dark banner, which
+ * Tesseract reads as nothing. OCRs the top third of the image inverted. Only
+ * called when the normal pass found no name, because it costs another OCR run.
+ */
+async function extractImageHeaderInverted(buffer) {
+  const sharp = require('sharp');
+  const meta = await sharp(buffer).rotate().metadata();
+  const header = await sharp(buffer)
+    .rotate()
+    .extract({ left: 0, top: 0, width: meta.width, height: Math.max(50, Math.round(meta.height * 0.33)) })
+    .resize({ width: OCR_TARGET_WIDTH, withoutEnlargement: false })
+    .grayscale()
+    .negate()
+    .normalise()
+    .png()
+    .toBuffer();
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(header);
+  return data.text || '';
+}
+
 async function extractImage(buffer) {
   try {
-    const worker = await getOcrWorker();
-    const { data } = await worker.recognize(buffer);
-    return { text: data.text || '', method: 'ocr' };
+    return { text: await recognize(buffer), method: 'ocr' };
   } catch (err) {
     throw new ExtractError('ocr_failed', `OCR failed: ${err.message}`);
   }
@@ -145,4 +228,4 @@ async function extractText(buffer, fileName) {
   return result;
 }
 
-module.exports = { extractText, terminateOcrWorker, ExtractError, SUPPORTED_EXT };
+module.exports = { extractText, extractImageHeaderInverted, terminateOcrWorker, ExtractError, SUPPORTED_EXT, IMAGE_EXT };
