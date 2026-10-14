@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Table2, Copy, Check, Briefcase, MapPin, Tag, MessageCircle, MoreHorizontal } from 'lucide-react';
+import { Upload, Phone, Plus, Pause, Play, X, ArrowRight, Search, Mail, CalendarClock, CalendarPlus, ListChecks, Table2, Copy, Check, Briefcase, MapPin, Tag, MessageCircle, MoreHorizontal } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
@@ -24,6 +24,7 @@ import { nextStepLabel } from '../lib/stageVerbs';
 import { BulkBar } from '../components/hr/BulkBar';
 import { BulkDatesSheet } from '../components/hr/BulkDatesSheet';
 import { BulkStatusSheet } from '../components/hr/BulkStatusSheet';
+import { ResumeImportSheet } from '../components/hr/ResumeImportSheet';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -565,8 +566,10 @@ function QuickAdd({ open, onClose, teams, positions, defaultCountry, meId, onAdd
 // ── Candidates ───────────────────────────────────────────────────────────
 function CandidatesTab({ scope }) {
   const { roles } = useAuth();
-  const { openPositions, reloadPositions } = scope;
+  const { openPositions, reloadPositions, myTeams } = scope;
   const { data, loading, error, reload } = useFetch('/api/v1/candidates');
+  const [importing, setImporting] = useState(false);
+  const canImport = can(roles, 'candidates', 'write') && myTeams.length > 0;
   const [q, setQ] = useState('');
   const [tagging, setTagging] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -596,9 +599,12 @@ function CandidatesTab({ scope }) {
 
   return (
     <>
-      <div className="relative mb-4">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-        <Input type="search" placeholder="Search name, phone, skill…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" aria-label="Search candidates" />
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input type="search" placeholder="Search name, phone, skill…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" aria-label="Search candidates" />
+        </div>
+        {canImport && <Button variant="outline" className="shrink-0" onClick={() => { setNotice(null); setImporting(true); }}><Upload /> Import resumes</Button>}
       </div>
       <ErrorNote onRetry={reload}>{error}</ErrorNote>
       <ErrorNote>{actionError}</ErrorNote>
@@ -625,6 +631,13 @@ function CandidatesTab({ scope }) {
           </Card>
         ))}
       </div>
+
+      {importing && <ResumeImportSheet
+        open
+        teams={myTeams}
+        onClose={() => setImporting(false)}
+        onDone={(n) => { setNotice(`${n} candidate${n === 1 ? '' : 's'} imported from resumes.`); reload(); }}
+      />}
 
       <PositionPicker
         open={!!tagging}

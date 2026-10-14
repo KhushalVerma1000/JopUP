@@ -34,14 +34,17 @@ export class ApiError extends Error {
  * @param {object} [options.body]
  */
 export async function apiFetch(path, { method = 'GET', body } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+  // FormData (file uploads) must be sent as-is: the browser sets the
+  // multipart Content-Type and boundary itself, so we must not override it.
+  const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+  const headers = isForm ? {} : { 'Content-Type': 'application/json' };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(path, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   });
 
   // Every JopUP error response is { status: 'fail', message: '...' } —
