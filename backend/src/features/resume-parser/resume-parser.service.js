@@ -15,20 +15,23 @@ async function parseFile(file, opts = {}) {
   const base = { fileName: file.originalname, size: file.size };
   try {
     const { text, method } = await extractText(file.buffer, file.originalname);
-    let parsed = parseResumeText(text, opts);
+    const parseOpts = { ...opts, fileName: file.originalname };
+    let parsed = parseResumeText(text, parseOpts);
     // Light-on-dark banner names are invisible to the normal OCR pass: retry the header inverted.
-    const noRealName = !parsed.candidate.firstName || parsed.warnings.includes('name_guessed_from_email');
+    const noRealName = !parsed.candidate.firstName || parsed.warnings.includes('name_guessed_from_email') || parsed.warnings.includes('name_guessed_from_filename');
     if (method === 'ocr' && noRealName && IMAGE_EXT.has(path.extname(file.originalname).toLowerCase())) {
       try {
         const head = await extractImageHeaderInverted(file.buffer);
-        const retry = parseResumeText(`${head}\n${text}`, opts);
-        if (retry.candidate.firstName && !retry.warnings.includes('name_guessed_from_email')) parsed = retry;
+        const retry = parseResumeText(`${head}\n${text}`, parseOpts);
+        if (retry.candidate.firstName && !retry.warnings.includes('name_guessed_from_email') && !retry.warnings.includes('name_guessed_from_filename')) parsed = retry;
       } catch { /* keep the first pass */ }
     }
     const c = parsed.candidate;
     // OCR can misread a digit or a letter without any sign of it, so contact
     // details from an image are always flagged for a human check.
     if (method.includes('ocr')) parsed.warnings.push('ocr_verify_contact');
+    // No way to contact them (often not a resume at all, e.g. a job description).
+    if (!c.email && !c.phone) parsed.warnings.push('no_contact_details');
     const complete = Boolean(c.firstName && (c.email || c.phone));
     return {
       ...base,

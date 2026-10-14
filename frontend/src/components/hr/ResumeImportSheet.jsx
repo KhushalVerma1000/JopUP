@@ -27,9 +27,11 @@ const WARNING_LABELS = {
   duplicate_in_batch: 'Same person appears twice in this upload',
   already_in_database: 'Already in your database',
   ocr_verify_contact: 'Read from an image — check phone & email',
+  name_guessed_from_filename: 'Name taken from the file name',
+  no_contact_details: 'No phone or email found — is this a resume?',
 };
 // Warnings that make a row start unticked, so nothing risky is created by accident.
-const BLOCKING = new Set(['duplicate_in_batch', 'already_in_database', 'missing_name']);
+const BLOCKING = new Set(['duplicate_in_batch', 'already_in_database', 'missing_name', 'no_contact_details']);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 let uid = 0;

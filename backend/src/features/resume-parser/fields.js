@@ -15,6 +15,18 @@ const NAME_LABEL_RE = /^\s*(?:full\s+)?name\s*[:\-–]\s*(.+)$/i;
 const BAD_NAME_TOKENS = /\b(resume|curriculum|vitae|engineer|developer|manager|analyst|executive|consultant|designer|intern|fresher|objective|summary|profile|address|email|mobile|phone|contact|experience|education|skills|linkedin|github|http|www|accountant|recruiter|officer|associate|specialist|administrator|coordinator|supervisor|trainee|professional|architect|tester|programmer|university|college|institute|school|board|private|limited|ltd|pvt)\b/i;
 // Words that can never be part of a person's name. In two-column / OCR'd layouts a
 // name line often has the neighbouring column glued on ("Himanshu patel and belief.").
+// Words that mark a heading, degree, company or job title rather than a person. Matched
+// per word and on the whole line with spaces removed ("CURRICULUM VITAE" / "CURRICULUMVITAE").
+const NOT_A_NAME = new Set(['time', 'about', 'growth', 'your', 'branch', 'sales', 'marketing', 'synopsis', 'curriculumvitae',
+  'workexperience', 'careerobjective', 'carrierobjective', 'personaldetails', 'pgdbm', 'pgdm', 'mba', 'career', 'personal',
+  'details', 'information', 'biodata', 'bio', 'data', 'page', 'sheet', 'document', 'new', 'updated', 'final', 'llp', 'events',
+  'foundation', 'solutions', 'technologies', 'technology', 'services', 'enterprises', 'industries', 'consultancy', 'limited',
+  'group', 'bank', 'insurance', 'finance', 'financial', 'company', 'corporation', 'global', 'india', 'delhi', 'noida', 'bpo',
+  'highlights', 'summary', 'strengths', 'skills', 'achievements', 'declaration', 'references', 'hobbies', 'languages',
+  'projects', 'training', 'positions', 'open', 'jobs', 'hiring', 'vacancy', 'responsibilities', 'requirements', 'oppo', 'vivo',
+  'samsung', 'redmi', 'realme', 'iphone', 'apple', 'xiaomi', 'shot', 'more', 'less', 'sent', 'from', 'scanned', 'camscanner',
+  'accounts', 'accounting', 'banking', 'operations', 'business', 'development', 'management', 'hr', 'it', 'digital', 'online']);
+const NAME_TITLES = /^(mr|mrs|ms|miss|shri|smt|shree|dr|er)\.?$/i;
 const NAME_STOPWORDS = /^(and|the|of|to|in|at|for|with|is|are|belief|knowledge|nationality|date|place|dob|mob|mobile|phone|email|address|languages?|declaration|signature|hereby|gender|marital|status)$/i;
 
 const MAJOR_CITIES = [
@@ -56,14 +68,17 @@ function extractLinkedin(text) {
  * there is no +CC and no defaultCountry, phone is returned with a null
  * phoneCountry and a warning so the UI can ask.
  */
-function extractPhone(text, defaultCountry) {
+function extractPhone(rawText, defaultCountry) {
+  // "93015 12556, 89892 21856": keep two numbers from reading as one number plus an extension.
+  const text = rawText.replace(/(\d)\s*[,;/]\s*(?=\+?\d)/g, '$1 | ');
   const found = findPhoneNumbersInText(text, defaultCountry || undefined);
   const valid = found.filter(f => f.number && f.number.isValid());
   if (valid.length) {
     // explicit international numbers first, then by order of appearance
     const intl = valid.find(f => /^\s*\+/.test(text.slice(f.startsAt, f.endsAt)) || /^\s*00/.test(text.slice(f.startsAt, f.endsAt)));
     const pick = (intl || valid[0]).number;
-    return { phone: pick.formatInternational(), phoneCountry: pick.country || defaultCountry || null, confidence: 'high' };
+    const clean = parsePhoneNumberFromString(pick.number); // E.164 has no extension
+    return { phone: (clean || pick).formatInternational().replace(/\s*ext\.?.*$/i, ''), phoneCountry: pick.country || defaultCountry || null, confidence: 'high' };
   }
   // No default country and no +CC: grab the first plausible digit run so HR sees it.
   const m = text.match(/(?<![\d])(\+?\d[\d\s().-]{8,14}\d)(?![\d])/);
@@ -92,13 +107,14 @@ function cleanTokens(text) {
     if (/[A-Za-z]/.test(tok)) out.push(tok);
     if (endsComma) break;
   }
+  while (out.length > 1 && NAME_TITLES.test(out[0])) out.shift();
   const isNoise = (t) => t.replace(/\./g, '').length < 3 && !/^[A-Z]\.$/.test(t);
   while (out.length > 1 && isNoise(out[0])) out.shift();
   while (out.length > 1 && isNoise(out[out.length - 1])) out.pop();
   return out;
 }
 
-function nameFromLine(line) {
+function nameFromLine(line, { relaxed = false } = {}) {
   const labeled = line.match(NAME_LABEL_RE);
   const source = labeled ? labeled[1] : line;
   if (/[@\d/\\:]/.test(source.replace(/^[^A-Za-z]*\|/, ''))) return null;
@@ -110,25 +126,57 @@ function nameFromLine(line) {
   const candidate = words.join(' ');
   if (!candidate || candidate.length > 40) return null;
   if (BAD_NAME_TOKENS.test(candidate) || SKILL_PHRASES.has(candidate.toLowerCase())) return null;
+  if (NOT_A_NAME.has(candidate.toLowerCase().replace(/\s+/g, '')) || words.some(w => NOT_A_NAME.has(w.toLowerCase()))) return null;
   if (words.length < 1 || words.length > 4) return null;
   if (!words.every(w => /^[A-Za-z][A-Za-z.'’-]*$/.test(w))) return null;
   // a single word is only believable if it came from a "Name:" label or looks capitalised
-  if (words.length === 1 && !labeled && !/^[A-Z][a-z]+$|^[A-Z]{3,}$/.test(words[0])) return null;
+  if (words.length === 1 && !labeled && !relaxed && !/^[A-Z][a-z]+$|^[A-Z]{3,}$/.test(words[0])) return null;
   const allCapsOrTitle = words.every(w => /^[A-Z][a-z.'’-]*$|^[A-Z.'’-]+$/.test(w));
-  if (!allCapsOrTitle && !labeled) return null;
+  if (!allCapsOrTitle && !labeled && !relaxed) return null;
   return titleCase(candidate);
 }
 
-function extractName(lines, email) {
+const FILENAME_JUNK = /\b(naukri|resume|resumes|cv|curriculum|vitae|updated|update|new|final|copy|doc|document|docx|pdf|professional|complete|large|latest|my|of|the|by|candidate|profile)\b/gi;
+
+/** Best-effort person name from an upload filename ("Naukri_UditSharma[7y_0m].pdf" -> "Udit Sharma"). */
+function nameFromFileName(fileName) {
+  if (!fileName) return null;
+  let base = fileName.replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(/[\[(].*?[\])]/g, ' ');
+  const groups = base.split('_').map(g => g.replace(/\d+/g, ' ').replace(FILENAME_JUNK, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[^A-Za-z.\s'-]+/g, ' ').replace(/\s+/g, ' ').trim()).filter(g => g.length >= 2);
+  if (!groups.length) return null;
+  let words = groups[0].split(' ').filter(w => w.replace(/\./g, '').length >= 1);
+  const cityWords = new Set(MAJOR_CITIES.flatMap(c => c.toLowerCase().split(' ')));
+  words = words.filter(w => !cityWords.has(w.toLowerCase()) && !NOT_A_NAME.has(w.toLowerCase()));
+  if (words.length < 1 || words.length > 4 || words.join('').length < 3) return null;
+  if (words.some(w => NAME_STOPWORDS.test(w))) return null;
+  return titleCase(words.join(' '));
+}
+
+/** Does a candidate name share a token with a reference string (email local part / filename)? */
+function agrees(full, ref) {
+  if (!full || !ref) return false;
+  const flat = ref.toLowerCase().replace(/[^a-z]/g, '');
+  return full.toLowerCase().split(/\s+/).some(t => t.replace(/[^a-z]/g, '').length >= 4 && flat.includes(t.replace(/[^a-z]/g, '')));
+}
+
+function extractName(lines, email, fileName) {
+  const emailLocal = email ? email.split('@')[0].replace(/\d+/g, '') : '';
+  const fileName_ = nameFromFileName(fileName);
+  const refs = [emailLocal, fileName_ || ''];
+  const cands = [];
+
   for (const l of lines.slice(0, 60)) {
     if (NAME_LABEL_RE.test(l)) {
       const n = nameFromLine(l);
-      if (n) return { full: n, confidence: 'high' };
+      if (n) { cands.push({ full: n, score: 10, src: 'label' }); break; }
     }
   }
   const head = lines.slice(0, 12);
   for (let i = 0; i < head.length; i++) {
     let n = nameFromLine(head[i]);
+    let relaxed = false;
+    if (!n) { n = nameFromLine(head[i], { relaxed: true }); relaxed = Boolean(n); }
     if (!n) continue;
     // Designer headers often split the name over two lines: "SURYA PRAKASH" / "KUSHWAHA".
     // Skip one line of OCR noise in between.
@@ -137,21 +185,36 @@ function extractName(lines, email) {
       if (t.length === 0 || (t.length === 1 && t[0].length < 3)) continue;
       if (t.length === 1 && /^[A-Z]{3,}$/.test(t[0]) && cleanTokens(head[i]).every(x => /^[A-Z.'’-]+$/.test(x))
         && n.split(' ').length < 3 && !BAD_NAME_TOKENS.test(t[0]) && !SECTION_WORDS.test(t[0])
-        && !NAME_STOPWORDS.test(t[0]) && !SKILL_PHRASES.has(t[0].toLowerCase())) {
+        && !NAME_STOPWORDS.test(t[0]) && !NOT_A_NAME.has(t[0].toLowerCase()) && !SKILL_PHRASES.has(t[0].toLowerCase())) {
         n = `${n} ${titleCase(t[0])}`;
       }
       break;
     }
-    return { full: n, confidence: 'high' };
+    // A mixed-case line ("Shriyansh gupta") is only believable if the email or filename backs it up.
+    if (relaxed && !refs.some(r => agrees(n, r))) continue;
+    cands.push({ full: n, score: 7 - i * 0.25, src: 'line' });
   }
-  if (email) {
-    const local = email.split('@')[0].replace(/\d+/g, ' ').replace(/[._-]+/g, ' ').trim();
-    const words = local.split(/\s+/).filter(w => w.length > 1);
-    if (words.length >= 1 && words.length <= 3 && words.every(w => /^[a-z]+$/i.test(w))) {
-      return { full: titleCase(words.join(' ')), confidence: 'low', fromEmail: true };
-    }
+  if (fileName_) cands.push({ full: fileName_, score: 3, src: 'filename' });
+  const emailWords = emailLocal.replace(/[._-]+/g, ' ').trim().split(/\s+/).filter(w => w.length > 2);
+  if (emailWords.length >= 1 && emailWords.length <= 3 && emailWords.every(w => /^[a-z]+$/i.test(w))
+    && !emailWords.some(w => NOT_A_NAME.has(w.toLowerCase()))) {
+    cands.push({ full: titleCase(emailWords.join(' ')), score: 2, src: 'email' });
   }
-  return null;
+  if (!cands.length) return null;
+
+  for (const c of cands) {
+    const others = refs.filter((r, idx) => !(c.src === 'email' && idx === 0) && !(c.src === 'filename' && idx === 1));
+    c.agree = others.some(r => agrees(c.full, r));
+    if (c.agree) c.score += 4;
+  }
+  cands.sort((a, b) => b.score - a.score);
+  const best = cands[0];
+  return {
+    full: best.full,
+    confidence: best.src === 'label' || best.src === 'line' ? 'high' : 'low',
+    fromEmail: best.src === 'email',
+    fromFilename: best.src === 'filename',
+  };
 }
 
 const INDIAN_STATES = 'Andhra Pradesh|Arunachal Pradesh|Assam|Bihar|Chhattisgarh|Goa|Gujarat|Haryana|Himachal Pradesh|Jharkhand|Karnataka|Kerala|Madhya Pradesh|Maharashtra|Manipur|Meghalaya|Mizoram|Nagaland|Odisha|Orissa|Punjab|Rajasthan|Sikkim|Tamil Nadu|Telangana|Tripura|Uttar Pradesh|Uttarakhand|West Bengal|Jammu and Kashmir|Delhi|U\\.?P\\.?';
@@ -348,7 +411,7 @@ function parseResumeText(text, opts = {}) {
     if (!phoneRes.phoneCountry) warnings.push('phone_country_unknown');
   }
 
-  const name = extractName(lines, email);
+  const name = extractName(lines, email, opts.fileName);
   let firstName = null;
   let lastName = null;
   if (name) {
@@ -358,6 +421,7 @@ function parseResumeText(text, opts = {}) {
     lastName = parts.length > 1 ? parts[parts.length - 1] : null;
     confidence.name = name.confidence;
     if (name.fromEmail) warnings.push('name_guessed_from_email');
+    if (name.fromFilename) warnings.push('name_guessed_from_filename');
   } else {
     warnings.push('missing_name');
   }

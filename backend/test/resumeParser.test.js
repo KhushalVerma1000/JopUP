@@ -152,6 +152,57 @@ test('unsupported extension and corrupt file are per-file failures, not crashes'
   assert.equal(corrupt.errorCode, 'corrupt_file');
 });
 
+// ---------- names: cross-checks, headings, honorifics (found on a 52-resume real batch) ----------
+
+test('name: file name is used when the text has none, and is flagged', () => {
+  const text = 'EXPERIENCE\nSr. Accounts Executive\nSutra Marketing and Events LLP\nJanuary 2025 – Present\nPhone 9354370483\n';
+  const r = parseResumeText(text, { defaultCountry: 'IN', fileName: 'Naukri_UditSharma[7y_0m].pdf' });
+  assert.equal(r.candidate.firstName, 'Udit');
+  assert.equal(r.candidate.lastName, 'Sharma');
+  assert.ok(r.warnings.includes('name_guessed_from_filename'));
+});
+
+test('name: company, degree and heading lines are never taken as a name', () => {
+  const a = parseResumeText('PGDBM (Marketing)\nEmail: vikash.kumarnoida2018@gmail.com\n', { fileName: 'VIKAS KUMAR RESUME.pdf' });
+  assert.equal(a.candidate.firstName, 'Vikas');
+  assert.equal(a.candidate.lastName, 'Kumar');
+  const b = parseResumeText('Objective\nSYNOPSIS\nMANISH KUMAR PANDEY\nSeeking a challenging position\n');
+  assert.equal(b.candidate.firstName, 'Manish Kumar');
+  assert.equal(b.candidate.lastName, 'Pandey');
+  const c = parseResumeText('CURRICULUMVITAE\nRAVI CHANDRA\nHNO-2678 GALINO-68 SANT NAGAR BURARI DELHI-110084\n');
+  assert.equal(c.candidate.firstName, 'Ravi');
+  assert.equal(c.candidate.lastName, 'Chandra');
+  const d = parseResumeText('HIGHLIGHTS\nMore Oppo\nPhone 9811122233\n', { defaultCountry: 'IN' });
+  assert.equal(d.candidate.firstName, null);
+});
+
+test('name: mixed-case line is accepted only when the file name or email backs it up', () => {
+  const text = 'RESUME\nShriyansh gupta\nContact no:- 9301512556,8989221856\n';
+  const backed = parseResumeText(text, { defaultCountry: 'IN', fileName: 'SHRIYANSH GUPTA JABALPUR.pdf' });
+  assert.equal(backed.candidate.firstName, 'Shriyansh');
+  assert.equal(backed.candidate.lastName, 'Gupta');
+  const alone = parseResumeText(text, { defaultCountry: 'IN' });
+  assert.equal(alone.candidate.firstName, null);
+});
+
+test('phone: two numbers joined by a comma are not read as one number with an extension', () => {
+  const r = parseResumeText('Contact no:- 9301512556,8989221856\n', { defaultCountry: 'IN' });
+  assert.equal(r.candidate.phone, '+91 93015 12556');
+  assert.ok(!/ext/i.test(r.candidate.phone));
+});
+
+test('name: honorifics are dropped', () => {
+  const r = parseResumeText('Mr. SAHIL KHAN\nsahil.khan@mail.com\n');
+  assert.equal(r.candidate.firstName, 'Sahil');
+  assert.equal(r.candidate.lastName, 'Khan');
+});
+
+test('a document with no phone or email (e.g. a job description) is flagged as not-a-resume', async () => {
+  const r = await parseFile({ originalname: 'not_a_resume.docx', size: 1, buffer: read('not_a_resume.docx') }, { defaultCountry: 'IN' });
+  assert.ok(r.warnings.includes('no_contact_details'));
+  assert.equal(r.status, 'incomplete');
+});
+
 // ---------- field rules ----------
 
 test('phone without +CC and without defaultCountry is kept but flagged (ADR-2: no country guessing)', () => {
