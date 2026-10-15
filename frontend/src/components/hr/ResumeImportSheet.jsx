@@ -12,6 +12,7 @@ import { errorMessage } from '../../hooks/useFetch';
 const COUNTRIES = [['IN', 'India +91'], ['US', 'United States +1'], ['GB', 'United Kingdom +44'], ['AE', 'UAE +971'], ['SG', 'Singapore +65'], ['CA', 'Canada +1'], ['AU', 'Australia +61']];
 const ACCEPT = '.pdf,.docx,.doc,.png,.jpg,.jpeg,.bmp,.tif,.tiff';
 const ACCEPT_EXT = ACCEPT.split(',');
+const CREATE_CHUNK = 20; // candidates per create request: keeps each body small and gives real progress
 const CHUNK = 10; // files per request: keeps each call short and gives real progress
 const MAX_FILES = 100;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -147,19 +148,29 @@ export function ResumeImportSheet({ open, teams, onClose, onDone }) {
 
   async function create(items) {
     setBusy(true); setError(null);
-    try {
-      const res = await apiFetch('/api/v1/resume-parser/bulk-create', {
-        method: 'POST',
-        body: { ownerTeamId: teamId, items: items.map(toPayload) },
-      });
-      const byDraft = new Map();
-      res.data.results.forEach((r) => byDraft.set(items[r.index].id, r));
-      setResults((prev) => ({ ...(prev || {}), ...Object.fromEntries(byDraft) }));
-      setStep('done');
-    } catch (err) {
-      setError(errorMessage(err, 'Could not create the candidates.'));
+    const byDraft = {};
+    let failedBatches = 0;
+    // Batches run one after another; a failed batch is marked on its rows and
+    // the rest still go through, so one bad request never loses the whole import.
+    for (let i = 0; i < items.length; i += CREATE_CHUNK) {
+      const batch = items.slice(i, i + CREATE_CHUNK);
+      setProgress({ done: i, total: items.length, mode: 'create' });
+      try {
+        const res = await apiFetch('/api/v1/resume-parser/bulk-create', {
+          method: 'POST',
+          body: { ownerTeamId: teamId, items: batch.map(toPayload) },
+        });
+        res.data.results.forEach((r) => { byDraft[batch[r.index].id] = r; });
+      } catch (err) {
+        failedBatches += 1;
+        const msg = errorMessage(err, 'This batch could not be saved.');
+        batch.forEach((d) => { byDraft[d.id] = { status: 'error', error: msg }; });
+      }
     }
-    setBusy(false);
+    setResults((prev) => ({ ...(prev || {}), ...byDraft }));
+    if (failedBatches) setError(`${failedBatches} batch${failedBatches === 1 ? '' : 'es'} failed. The others were saved; use "Back to review" to retry the rest.`);
+    setStep('done');
+    setBusy(false); setProgress(null);
   }
 
   // ── step 3: result ─────────────────────────────────────────────────────
@@ -229,7 +240,7 @@ export function ResumeImportSheet({ open, teams, onClose, onDone }) {
             )}
 
             <div className="flex items-center justify-end gap-3">
-              {progress && <span className="text-sm text-muted-foreground" aria-live="polite">Reading {Math.min(progress.done + CHUNK, progress.total)} of {progress.total}…</span>}
+              {progress && <span className="text-sm text-muted-foreground" aria-live="polite">{progress.mode === 'create' ? 'Saving' : 'Reading'} {Math.min(progress.done + (progress.mode === 'create' ? CREATE_CHUNK : CHUNK), progress.total)} of {progress.total}…</span>}
               <Button onClick={parse} disabled={busy || !files.length || !teamId}>
                 {busy ? 'Reading resumes…' : `Read ${files.length || ''} resume${files.length === 1 ? '' : 's'}`}
               </Button>
@@ -312,6 +323,7 @@ export function ResumeImportSheet({ open, teams, onClose, onDone }) {
                 <Button onClick={() => create(selected)} disabled={busy || !selected.length || problems.length > 0}>
                   {busy ? 'Creating…' : `Create ${selected.length} candidate${selected.length === 1 ? '' : 's'}`}
                 </Button>
+                {progress?.mode === 'create' && <span className="text-sm text-muted-foreground" aria-live="polite">Saving {Math.min(progress.done + CREATE_CHUNK, progress.total)} of {progress.total}…</span>}
               </div>
             </div>
           </>

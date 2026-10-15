@@ -39,6 +39,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Global Middlewares
+// Bulk resume import posts reviewed drafts that each carry the parsed resume
+// text, so one batch easily exceeds the default 100kb JSON limit. This route
+// gets a larger limit and must be registered BEFORE the global parser (body-parser
+// skips a request that is already parsed). Everything else keeps the default.
+app.use('/api/v1/resume-parser/bulk-create', express.json({ limit: '10mb' }));
 app.use(express.json());
 app.use(tenant); // Extracts tenant ID from headers globally
 

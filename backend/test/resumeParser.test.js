@@ -291,3 +291,21 @@ test('POST /api/v1/resume-parser/bulk-create validates the body', async () => {
     .send({ ownerTeamId: 'not-a-uuid', items: [] });
   assert.ok([400, 403, 500, 503].includes(res.status), `Unexpected status ${res.status}`);
 });
+
+test('POST /api/v1/resume-parser/bulk-create accepts bodies over the default 100kb JSON limit', async () => {
+  // ~300kb of parsed resume text: used to fail with 413 PayloadTooLargeError.
+  const items = Array.from({ length: 3 }, (_, i) => ({
+    firstName: `Person${i}`,
+    parsedResume: { rawText: 'x'.repeat(100 * 1024) },
+  }));
+  const res = await request(app).post('/api/v1/resume-parser/bulk-create')
+    .set('Authorization', `Bearer ${token()}`)
+    .send({ ownerTeamId: 'not-a-uuid', items });
+  assert.notEqual(res.status, 413, 'body should not be rejected as too large');
+});
+
+test('large JSON bodies are still rejected on other routes', async () => {
+  const res = await request(app).post('/api/v1/auth/login')
+    .send({ email: 'a@b.co', password: 'x'.repeat(150 * 1024) });
+  assert.equal(res.status, 413);
+});

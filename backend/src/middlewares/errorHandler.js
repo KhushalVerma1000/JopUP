@@ -51,6 +51,18 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // ── Request body too large / malformed JSON (from body-parser) ──
+  // These are client errors, not server faults: answer 413 / 400 instead of 500.
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({
+      status: 'fail',
+      message: 'The request is too large. Send fewer items per request.',
+    });
+  }
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ status: 'fail', message: 'Request body is not valid JSON.' });
+  }
+
   // ── Unknown / Programming Error ───────────────────────────
   console.error('Unhandled Error:', err);
 
