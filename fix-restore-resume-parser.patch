@@ -1,0 +1,1287 @@
+diff --git a/backend/src/features/resume-parser/fields.js b/backend/src/features/resume-parser/fields.js
+new file mode 100644
+index 0000000..883f6fe
+--- /dev/null
++++ b/backend/src/features/resume-parser/fields.js
+@@ -0,0 +1,455 @@
++/**
++ * Rule-based field extraction from raw resume text. No network, no per-call
++ * cost. Everything here is deterministic so it is easy to unit test.
++ *
++ * Returns the candidate-shaped fields plus per-field confidence and warnings
++ * so the review screen can highlight what a human should double check.
++ */
++const { parsePhoneNumberFromString, findPhoneNumbersInText } = require('libphonenumber-js');
++const { SKILLS, ALIASES } = require('./skills');
++
++const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
++const LINKEDIN_RE = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/([A-Za-z0-9_%\-]+)/i;
++const SECTION_WORDS = /^(resume|r[eé]sum[eé]|curriculum\s+vitae|cv|profile|summary|objective|career\s+objective|contact|contact\s+details|personal\s+(details|information|profile)|about\s+me|skills|education|experience|work\s+experience|declaration)$/i;
++const NAME_LABEL_RE = /^\s*(?:full\s+)?name\s*[:\-–]\s*(.+)$/i;
++const BAD_NAME_TOKENS = /\b(resume|curriculum|vitae|engineer|developer|manager|analyst|executive|consultant|designer|intern|fresher|objective|summary|profile|address|email|mobile|phone|contact|experience|education|skills|linkedin|github|http|www|accountant|recruiter|officer|associate|specialist|administrator|coordinator|supervisor|trainee|professional|architect|tester|programmer|university|college|institute|school|board|private|limited|ltd|pvt)\b/i;
++// Words that can never be part of a person's name. In two-column / OCR'd layouts a
++// name line often has the neighbouring column glued on ("Himanshu patel and belief.").
++// Words that mark a heading, degree, company or job title rather than a person. Matched
++// per word and on the whole line with spaces removed ("CURRICULUM VITAE" / "CURRICULUMVITAE").
++const NOT_A_NAME = new Set(['time', 'about', 'growth', 'your', 'branch', 'sales', 'marketing', 'synopsis', 'curriculumvitae',
++  'workexperience', 'careerobjective', 'carrierobjective', 'personaldetails', 'pgdbm', 'pgdm', 'mba', 'career', 'personal',
++  'details', 'information', 'biodata', 'bio', 'data', 'page', 'sheet', 'document', 'new', 'updated', 'final', 'llp', 'events',
++  'foundation', 'solutions', 'technologies', 'technology', 'services', 'enterprises', 'industries', 'consultancy', 'limited',
++  'group', 'bank', 'insurance', 'finance', 'financial', 'company', 'corporation', 'global', 'india', 'delhi', 'noida', 'bpo',
++  'highlights', 'summary', 'strengths', 'skills', 'achievements', 'declaration', 'references', 'hobbies', 'languages',
++  'projects', 'training', 'positions', 'open', 'jobs', 'hiring', 'vacancy', 'responsibilities', 'requirements', 'oppo', 'vivo',
++  'samsung', 'redmi', 'realme', 'iphone', 'apple', 'xiaomi', 'shot', 'more', 'less', 'sent', 'from', 'scanned', 'camscanner',
++  'accounts', 'accounting', 'banking', 'operations', 'business', 'development', 'management', 'hr', 'it', 'digital', 'online']);
++const NAME_TITLES = /^(mr|mrs|ms|miss|shri|smt|shree|dr|er)\.?$/i;
++const NAME_STOPWORDS = /^(and|the|of|to|in|at|for|with|is|are|belief|knowledge|nationality|date|place|dob|mob|mobile|phone|email|address|languages?|declaration|signature|hereby|gender|marital|status)$/i;
++
++const MAJOR_CITIES = [
++  'Mumbai', 'Delhi', 'New Delhi', 'Bengaluru', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad',
++  'Jaipur', 'Surat', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Bhopal', 'Patna', 'Vadodara', 'Ghaziabad',
++  'Ludhiana', 'Agra', 'Nashik', 'Faridabad', 'Meerut', 'Noida', 'Greater Noida', 'Gurgaon', 'Gurugram',
++  'Chandigarh', 'Coimbatore', 'Kochi', 'Thiruvananthapuram', 'Visakhapatnam', 'Vijayawada', 'Mysore', 'Mysuru',
++  'Bhubaneswar', 'Dehradun', 'Ranchi', 'Raipur', 'Guwahati', 'Aligarh', 'Varanasi', 'Prayagraj', 'Allahabad',
++  'Amritsar', 'Jodhpur', 'Udaipur', 'Rajkot', 'Madurai', 'Mangalore', 'Thane', 'Navi Mumbai',
++  'Dubai', 'Abu Dhabi', 'Singapore', 'London', 'New York', 'San Francisco', 'Toronto', 'Sydney',
++];
++const CITY_RE = new RegExp(`\\b(${MAJOR_CITIES.map(c => c.replace(/\s+/g, '\\s+')).join('|')})\\b(?:\\s*,\\s*([A-Z][A-Za-z ]{2,25}))?`, 'i');
++
++const titleCase = (s) =>
++  s.toLowerCase().replace(/(^|[\s'’-])([a-z])/g, (_, p, c) => p + c.toUpperCase());
++
++function cleanLines(text) {
++  return text
++    .replace(/\r/g, '\n')
++    .replace(/[\u00a0\u200b]/g, ' ')
++    .split('\n')
++    .map(l => l.replace(/^[\s•▪●◦·*\-–—|]+/, '').replace(/\s+/g, ' ').trim())
++    .filter(Boolean);
++}
++
++function extractEmail(text) {
++  const matches = (text.match(EMAIL_RE) || []).filter(e => !/example\.com|yourname|youremail/i.test(e));
++  return matches.length ? matches[0].toLowerCase() : null;
++}
++
++function extractLinkedin(text) {
++  const m = text.match(LINKEDIN_RE);
++  return m ? `https://www.linkedin.com/in/${m[1]}` : null;
++}
++
++/**
++ * Phone: prefers numbers with an explicit +CC (country known for certain);
++ * otherwise uses defaultCountry. Never guesses a country (ADR-2) — when
++ * there is no +CC and no defaultCountry, phone is returned with a null
++ * phoneCountry and a warning so the UI can ask.
++ */
++function extractPhone(rawText, defaultCountry) {
++  // "93015 12556, 89892 21856": keep two numbers from reading as one number plus an extension.
++  const text = rawText.replace(/(\d)\s*[,;/]\s*(?=\+?\d)/g, '$1 | ');
++  const found = findPhoneNumbersInText(text, defaultCountry || undefined);
++  const valid = found.filter(f => f.number && f.number.isValid());
++  if (valid.length) {
++    // explicit international numbers first, then by order of appearance
++    const intl = valid.find(f => /^\s*\+/.test(text.slice(f.startsAt, f.endsAt)) || /^\s*00/.test(text.slice(f.startsAt, f.endsAt)));
++    const pick = (intl || valid[0]).number;
++    const clean = parsePhoneNumberFromString(pick.number); // E.164 has no extension
++    return { phone: (clean || pick).formatInternational().replace(/\s*ext\.?.*$/i, ''), phoneCountry: pick.country || defaultCountry || null, confidence: 'high' };
++  }
++  // No default country and no +CC: grab the first plausible digit run so HR sees it.
++  const m = text.match(/(?<![\d])(\+?\d[\d\s().-]{8,14}\d)(?![\d])/);
++  if (m) {
++    const digits = m[1].replace(/\D/g, '');
++    if (digits.length >= 10 && digits.length <= 13 && !/^(19|20)\d{2}/.test(digits)) {
++      return { phone: m[1].trim(), phoneCountry: null, confidence: 'low' };
++    }
++  }
++  return null;
++}
++
++const SKILL_PHRASES = new Set([...SKILLS, ...Object.values(ALIASES)].map(x => x.toLowerCase()));
++
++/**
++ * Split a line into name-like tokens, tolerating OCR debris ("Z| SURYA PRAKASH a"):
++ * stops at a pipe/bullet/comma, drops tokens without letters, and trims 1-2
++ * letter junk from both ends (initials like "A." are kept).
++ */
++function cleanTokens(text) {
++  const out = [];
++  for (const raw of text.trim().split(/\s+/)) {
++    if (raw === '|' || raw === '•' || raw === '·') break;
++    const endsComma = /,$/.test(raw);
++    const tok = raw.replace(/^[^A-Za-z]+/, '').replace(/[^A-Za-z.'’-]+$/, '');
++    if (/[A-Za-z]/.test(tok)) out.push(tok);
++    if (endsComma) break;
++  }
++  while (out.length > 1 && NAME_TITLES.test(out[0])) out.shift();
++  const isNoise = (t) => t.replace(/\./g, '').length < 3 && !/^[A-Z]\.$/.test(t);
++  while (out.length > 1 && isNoise(out[0])) out.shift();
++  while (out.length > 1 && isNoise(out[out.length - 1])) out.pop();
++  return out;
++}
++
++function nameFromLine(line, { relaxed = false } = {}) {
++  const labeled = line.match(NAME_LABEL_RE);
++  const source = labeled ? labeled[1] : line;
++  if (/[@\d/\\:]/.test(source.replace(/^[^A-Za-z]*\|/, ''))) return null;
++  if (SECTION_WORDS.test(source.trim())) return null;
++  let words = cleanTokens(source).map(w => w.replace(/[.,;]+$/, '')).filter(Boolean);
++  // Cut at the first stopword: everything after it belongs to another column.
++  const stop = words.findIndex((w, i) => i > 0 && NAME_STOPWORDS.test(w));
++  if (stop > 0) words = words.slice(0, stop);
++  const candidate = words.join(' ');
++  if (!candidate || candidate.length > 40) return null;
++  if (BAD_NAME_TOKENS.test(candidate) || SKILL_PHRASES.has(candidate.toLowerCase())) return null;
++  if (NOT_A_NAME.has(candidate.toLowerCase().replace(/\s+/g, '')) || words.some(w => NOT_A_NAME.has(w.toLowerCase()))) return null;
++  if (words.length < 1 || words.length > 4) return null;
++  if (!words.every(w => /^[A-Za-z][A-Za-z.'’-]*$/.test(w))) return null;
++  // a single word is only believable if it came from a "Name:" label or looks capitalised
++  if (words.length === 1 && !labeled && !relaxed && !/^[A-Z][a-z]+$|^[A-Z]{3,}$/.test(words[0])) return null;
++  const allCapsOrTitle = words.every(w => /^[A-Z][a-z.'’-]*$|^[A-Z.'’-]+$/.test(w));
++  if (!allCapsOrTitle && !labeled && !relaxed) return null;
++  return titleCase(candidate);
++}
++
++const FILENAME_JUNK = /\b(naukri|resume|resumes|cv|curriculum|vitae|updated|update|new|final|copy|doc|document|docx|pdf|professional|complete|large|latest|my|of|the|by|candidate|profile)\b/gi;
++
++/** Best-effort person name from an upload filename ("Naukri_UditSharma[7y_0m].pdf" -> "Udit Sharma"). */
++function nameFromFileName(fileName) {
++  if (!fileName) return null;
++  let base = fileName.replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(/[\[(].*?[\])]/g, ' ');
++  const groups = base.split('_').map(g => g.replace(/\d+/g, ' ').replace(FILENAME_JUNK, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
++    .replace(/[^A-Za-z.\s'-]+/g, ' ').replace(/\s+/g, ' ').trim()).filter(g => g.length >= 2);
++  if (!groups.length) return null;
++  let words = groups[0].split(' ').filter(w => w.replace(/\./g, '').length >= 1);
++  const cityWords = new Set(MAJOR_CITIES.flatMap(c => c.toLowerCase().split(' ')));
++  words = words.filter(w => !cityWords.has(w.toLowerCase()) && !NOT_A_NAME.has(w.toLowerCase()));
++  if (words.length < 1 || words.length > 4 || words.join('').length < 3) return null;
++  if (words.some(w => NAME_STOPWORDS.test(w))) return null;
++  return titleCase(words.join(' '));
++}
++
++/** Does a candidate name share a token with a reference string (email local part / filename)? */
++function agrees(full, ref) {
++  if (!full || !ref) return false;
++  const flat = ref.toLowerCase().replace(/[^a-z]/g, '');
++  return full.toLowerCase().split(/\s+/).some(t => t.replace(/[^a-z]/g, '').length >= 4 && flat.includes(t.replace(/[^a-z]/g, '')));
++}
++
++function extractName(lines, email, fileName) {
++  const emailLocal = email ? email.split('@')[0].replace(/\d+/g, '') : '';
++  const fileName_ = nameFromFileName(fileName);
++  const refs = [emailLocal, fileName_ || ''];
++  const cands = [];
++
++  for (const l of lines.slice(0, 60)) {
++    if (NAME_LABEL_RE.test(l)) {
++      const n = nameFromLine(l);
++      if (n) { cands.push({ full: n, score: 10, src: 'label' }); break; }
++    }
++  }
++  const head = lines.slice(0, 12);
++  for (let i = 0; i < head.length; i++) {
++    let n = nameFromLine(head[i]);
++    let relaxed = false;
++    if (!n) { n = nameFromLine(head[i], { relaxed: true }); relaxed = Boolean(n); }
++    if (!n) continue;
++    // Designer headers often split the name over two lines: "SURYA PRAKASH" / "KUSHWAHA".
++    // Skip one line of OCR noise in between.
++    for (const k of [1, 2]) {
++      const t = head[i + k] ? cleanTokens(head[i + k]) : [];
++      if (t.length === 0 || (t.length === 1 && t[0].length < 3)) continue;
++      if (t.length === 1 && /^[A-Z]{3,}$/.test(t[0]) && cleanTokens(head[i]).every(x => /^[A-Z.'’-]+$/.test(x))
++        && n.split(' ').length < 3 && !BAD_NAME_TOKENS.test(t[0]) && !SECTION_WORDS.test(t[0])
++        && !NAME_STOPWORDS.test(t[0]) && !NOT_A_NAME.has(t[0].toLowerCase()) && !SKILL_PHRASES.has(t[0].toLowerCase())) {
++        n = `${n} ${titleCase(t[0])}`;
++      }
++      break;
++    }
++    // A mixed-case line ("Shriyansh gupta") is only believable if the email or filename backs it up.
++    if (relaxed && !refs.some(r => agrees(n, r))) continue;
++    cands.push({ full: n, score: 7 - i * 0.25, src: 'line' });
++  }
++  if (fileName_) cands.push({ full: fileName_, score: 3, src: 'filename' });
++  const emailWords = emailLocal.replace(/[._-]+/g, ' ').trim().split(/\s+/).filter(w => w.length > 2);
++  if (emailWords.length >= 1 && emailWords.length <= 3 && emailWords.every(w => /^[a-z]+$/i.test(w))
++    && !emailWords.some(w => NOT_A_NAME.has(w.toLowerCase()))) {
++    cands.push({ full: titleCase(emailWords.join(' ')), score: 2, src: 'email' });
++  }
++  if (!cands.length) return null;
++
++  for (const c of cands) {
++    const others = refs.filter((r, idx) => !(c.src === 'email' && idx === 0) && !(c.src === 'filename' && idx === 1));
++    c.agree = others.some(r => agrees(c.full, r));
++    if (c.agree) c.score += 4;
++  }
++  cands.sort((a, b) => b.score - a.score);
++  const best = cands[0];
++  return {
++    full: best.full,
++    confidence: best.src === 'label' || best.src === 'line' ? 'high' : 'low',
++    fromEmail: best.src === 'email',
++    fromFilename: best.src === 'filename',
++  };
++}
++
++const INDIAN_STATES = 'Andhra Pradesh|Arunachal Pradesh|Assam|Bihar|Chhattisgarh|Goa|Gujarat|Haryana|Himachal Pradesh|Jharkhand|Karnataka|Kerala|Madhya Pradesh|Maharashtra|Manipur|Meghalaya|Mizoram|Nagaland|Odisha|Orissa|Punjab|Rajasthan|Sikkim|Tamil Nadu|Telangana|Tripura|Uttar Pradesh|Uttarakhand|West Bengal|Jammu and Kashmir|Delhi|U\\.?P\\.?';
++const CITY_STATE_RE = new RegExp(`([A-Za-z][A-Za-z ]{2,24}?)\\s*,\\s*(${INDIAN_STATES})\\b`, 'i');
++const DISTRICT_RE = /\bdist(?:rict|t)?\.?\s*[-:]?\s*([A-Za-z][A-Za-z ]{2,24})/i;
++
++function cityFrom(text) {
++  const known = text.match(CITY_RE);
++  if (known) return [titleCase(known[1].replace(/\s+/g, ' ')), known[2] && known[2].trim()].filter(Boolean).join(', ');
++  const cs = text.match(CITY_STATE_RE);
++  if (cs) {
++    const city = cs[1].trim();
++    // "Dashmesh Nagar, Sangrur, Punjab": take the last comma part before the state, not the whole run
++    return `${titleCase(city.split(',').pop().trim())}, ${titleCase(cs[2].replace(/\./g, ''))}`.replace(/\bUp\b/, 'UP');
++  }
++  const d = text.match(DISTRICT_RE);
++  if (d) return titleCase(d[1].trim().replace(/\s+(raj|up|mp|hr|pb)$/i, ''));
++  return null;
++}
++
++function extractLocation(lines) {
++  const window = lines.slice(0, 100);
++  // 1. Explicit "Location: X" / "City: X", also mid-line ("... • Phone: ... • Location: Nagpur").
++  for (const l of window) {
++    const m = l.match(/(?:^|[|•·,;]\s*)(?:current\s+|present\s+)?(?:location|city)\s*[:\-–]\s*([^|•·;]+)/i);
++    if (m) {
++      const v = m[1].trim().replace(/[,.\s]+$/, '');
++      if (v && v.length <= 60) {
++        const city = cityFrom(v);
++        return { location: city || v, confidence: city ? 'high' : 'medium' };
++      }
++    }
++  }
++  // 2. Address blocks (they often wrap onto the next line): current/present before permanent.
++  const blocks = [];
++  window.forEach((l, i) => {
++    const m = l.match(/^((?:current|present|permanent|correspondence|residential)\s+)?(?:address|residence)\s*[:\-–]?\s*(.*)$/i);
++    if (m) blocks.push({ perm: /permanent/i.test(m[1] || ''), text: [m[2], window[i + 1], window[i + 2]].filter(Boolean).join(', ') });
++  });
++  blocks.sort((a, b) => Number(a.perm) - Number(b.perm));
++  for (const b of blocks) {
++    const city = cityFrom(b.text);
++    if (city) return { location: city, confidence: 'medium' };
++  }
++  // 3a. A line carrying a 6-digit PIN code and a known city ("New Delhi — 110018").
++  for (const l of window) {
++    if (/\b\d{6}\b/.test(l) && l.length < 80) {
++      const city = cityFrom(l.replace(/\b\d{6}\b/, ''));
++      if (city) return { location: city, confidence: 'medium' };
++    }
++  }
++  // 3b. A known city in the header (first lines, where the contact strip lives).
++  for (const l of lines.slice(0, 20)) {
++    if (l.length < 140) {
++      const m = l.match(CITY_RE);
++      if (m) return { location: [titleCase(m[1].replace(/\s+/g, ' ')), m[2] && m[2].trim()].filter(Boolean).join(', '), confidence: 'medium' };
++    }
++  }
++  return null;
++}
++
++// Skills that are ordinary words/letters: only trusted when they appear as a
++// standalone token in a delimited list (e.g. "Python, Go, R, SQL").
++const AMBIGUOUS = new Set(['c', 'r', 'go', 'spring', 'express', 'swift', 'oracle', 'excel', 'vue', 'node', 'sales', 'sourcing', 'screening']);
++
++const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++
++const SKILL_MATCHERS = (() => {
++  const canonical = new Map();
++  SKILLS.forEach(s => canonical.set(s.toLowerCase(), s));
++  const terms = [...canonical.keys(), ...Object.keys(ALIASES)];
++  return terms.map(term => ({
++    term,
++    skill: canonical.get(term) || ALIASES[term],
++    ambiguous: AMBIGUOUS.has(term),
++    re: new RegExp(`(?<![A-Za-z0-9+#.])${escapeRe(term)}(?![A-Za-z0-9+#]|\\.[A-Za-z0-9])`, 'i'),
++  }));
++})();
++
++function extractSkills(text, lines) {
++  const found = new Set();
++  const flat = text.replace(/\s+/g, ' ');
++  const listTokens = new Set();
++  for (const l of lines) {
++    if ((l.match(/[,|;•·\/]/g) || []).length >= 2 || /^skills?\b/i.test(l)) {
++      l.replace(/^[A-Za-z &]*:/, '').split(/[,|;•·\/]/).forEach(t => listTokens.add(t.trim().toLowerCase()));
++    }
++  }
++  for (const m of SKILL_MATCHERS) {
++    if (m.ambiguous) {
++      if (listTokens.has(m.term)) found.add(m.skill);
++    } else if (m.re.test(flat)) {
++      found.add(m.skill);
++    }
++  }
++  return [...found].slice(0, 40);
++}
++
++const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
++const MON = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
++const YEAR = '(?:19|20)\\d{2}';
++const DATE = `(?:(?:\\d{1,2}[\\s./-]*)?${MON}\\.?[\\s,.'\\]\\[-]*${YEAR}|\\d{1,2}[/.-]\\d{1,2}[/.-]${YEAR}|\\d{1,2}[/.-]${YEAR}|${YEAR})`;
++const OPEN_END = '(?:present|till\\s+date|till\\s+now|to\\s+date|currently|current|ongoing|now|date)';
++const RANGE_RE = new RegExp(`\\[?(${DATE})\\]?\\s*(?:-|–|—|to|till)+\\s*\\[?(${DATE}|${OPEN_END})\\]?`, 'gi');
++// A date range on or right under one of these is study/training, not a job.
++const NOT_JOB = /\b(b\.?\s?tech|m\.?\s?tech|b\.?e\.?\b|b\.?sc|m\.?sc|bca|mca|b\.?com|m\.?com|b\.?a\.?\b|m\.?a\.?\b|mba|bba|diploma|degree|bachelor|master|university|college|school|cgpa|percentage|board|graduat|certificat|course|intern(?:ship)?|trainee|training)\b/i;
++
++function monthIndex(token, isEnd, now) {
++  const t = token.trim().toLowerCase();
++  if (new RegExp(`^${OPEN_END}$`, 'i').test(t)) return now.getFullYear() * 12 + now.getMonth();
++  const year = parseInt((t.match(new RegExp(YEAR)) || [])[0], 10);
++  if (!year) return null;
++  const name = t.match(new RegExp(MON));
++  if (name) return year * 12 + MONTHS.indexOf(name[0].slice(0, 3));
++  const num = t.match(/(?:^|\D)(\d{1,2})[/.-]\d{4}$/); // mm/yyyy or dd/mm/yyyy
++  if (num && +num[1] >= 1 && +num[1] <= 12) return year * 12 + (+num[1] - 1);
++  return year * 12 + (isEnd ? 11 : 0); // year only
++}
++
++/** Work-history span from date ranges: union of ranges, so overlaps and gaps are handled. */
++function estimateExperienceYears(lines, now) {
++  const nowIdx = now.getFullYear() * 12 + now.getMonth();
++  const spans = [];
++  lines.forEach((line, i) => {
++    RANGE_RE.lastIndex = 0;
++    let m;
++    while ((m = RANGE_RE.exec(line))) {
++      if (NOT_JOB.test(line) || (i > 0 && NOT_JOB.test(lines[i - 1]) && lines[i - 1].length < 120)) continue;
++      const start = monthIndex(m[1], false, now);
++      let end = monthIndex(m[2], true, now);
++      if (start === null || end === null || start > nowIdx) continue;
++      end = Math.min(end, nowIdx);
++      if (end < start || end - start > 12 * 45) continue;
++      spans.push([start, end + 1]);
++    }
++  });
++  if (!spans.length) return null;
++  spans.sort((a, b) => a[0] - b[0]);
++  let months = 0;
++  let [cs, ce] = spans[0];
++  for (const [s, e] of spans.slice(1)) {
++    if (s <= ce) ce = Math.max(ce, e);
++    else { months += ce - cs; [cs, ce] = [s, e]; }
++  }
++  months += ce - cs;
++  if (months < 3) return null;
++  return Math.round((months / 12) * 2) / 2;
++}
++
++/** Years stated in the text ("5+ years of experience"); several per-employer figures are summed. */
++function statedExperienceYears(text) {
++  const flat = text.replace(/\s+/g, ' ');
++  const total = flat.match(/(?:total|overall)\s+(?:work\s+)?experience\s*(?:of|is|:|-|–)?\s*(\d{1,2}(?:\.\d)?)/i);
++  if (total) return parseFloat(total[1]);
++  const re = /(\d{1,2}(?:\.\d)?)\s*\+?\s*(?:years?|yrs?)\s*(?:and\s*\d+\s*months?\s*)?(?:of\s+)?(?:[a-z-]+\s+){0,2}?experience(\s+(?:in|at|with|as)\b)?/gi;
++  const hits = [];
++  let m;
++  while ((m = re.exec(flat))) hits.push({ n: parseFloat(m[1]), perEmployer: Boolean(m[2]) });
++  if (!hits.length) {
++    const alt = flat.match(/experience\s*(?:of|:)?\s*(\d{1,2}(?:\.\d)?)\s*\+?\s*(?:years?|yrs?)/i);
++    return alt ? parseFloat(alt[1]) : null;
++  }
++  if (hits.length === 1) return hits[0].n;
++  // "1 year experience in X" + "1.5 year experience in Y": per-employer figures add up.
++  if (hits.every(h => h.perEmployer)) return hits.reduce((a, h) => a + h.n, 0);
++  return Math.max(...hits.map(h => h.n));
++}
++
++function extractExperience(text, lines, now) {
++  const stated = statedExperienceYears(text);
++  if (stated !== null && stated >= 0 && stated <= 50) return { years: stated, source: 'stated' };
++  const est = estimateExperienceYears(lines, now);
++  return est === null ? { years: null, source: null } : { years: est, source: 'estimated' };
++}
++
++/**
++ * @param {string} text raw extracted text
++ * @param {{defaultCountry?: string}} [opts] ISO alpha-2 used only for numbers lacking +CC
++ */
++function parseResumeText(text, opts = {}) {
++  const defaultCountry = opts.defaultCountry ? opts.defaultCountry.toUpperCase() : null;
++  const now = opts.now || new Date();
++  const lines = cleanLines(text);
++  const warnings = [];
++  const confidence = {};
++
++  const email = extractEmail(text);
++  if (email) confidence.email = 'high'; else warnings.push('missing_email');
++
++  const phoneRes = extractPhone(text, defaultCountry);
++  if (!phoneRes) warnings.push('missing_phone');
++  else {
++    confidence.phone = phoneRes.confidence;
++    if (!phoneRes.phoneCountry) warnings.push('phone_country_unknown');
++  }
++
++  const name = extractName(lines, email, opts.fileName);
++  let firstName = null;
++  let lastName = null;
++  if (name) {
++    const parts = name.full.split(/\s+/);
++    // "Surya Prakash Kushwaha" -> first "Surya Prakash", last "Kushwaha" (the usual Indian convention; HR can edit).
++    firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0];
++    lastName = parts.length > 1 ? parts[parts.length - 1] : null;
++    confidence.name = name.confidence;
++    if (name.fromEmail) warnings.push('name_guessed_from_email');
++    if (name.fromFilename) warnings.push('name_guessed_from_filename');
++  } else {
++    warnings.push('missing_name');
++  }
++  if (name && !lastName) warnings.push('missing_last_name');
++
++  const loc = extractLocation(lines);
++  if (loc) confidence.location = loc.confidence;
++
++  const exp = extractExperience(text, lines, now);
++  const skills = extractSkills(text, lines);
++  if (!skills.length) warnings.push('no_skills_found');
++
++  return {
++    candidate: {
++      firstName,
++      lastName,
++      email,
++      phone: phoneRes ? phoneRes.phone : null,
++      phoneCountry: phoneRes ? phoneRes.phoneCountry : null,
++      location: loc ? loc.location : null,
++      linkedinUrl: extractLinkedin(text),
++      skills,
++    },
++    experienceYears: exp.years,
++    experienceSource: exp.source,
++    confidence,
++    warnings,
++  };
++}
++
++module.exports = { parseResumeText, extractEmail, extractPhone, extractSkills, extractName, cleanLines };
+diff --git a/backend/src/features/resume-parser/resume-parser.service.js b/backend/src/features/resume-parser/resume-parser.service.js
+new file mode 100644
+index 0000000..0bb8f38
+--- /dev/null
++++ b/backend/src/features/resume-parser/resume-parser.service.js
+@@ -0,0 +1,151 @@
++const { db, schema } = require('../../utils/db');
++const { and, eq, inArray } = require('drizzle-orm');
++const path = require('path');
++const { extractText, extractImageHeaderInverted, ExtractError, IMAGE_EXT } = require('./extract');
++const { parseResumeText } = require('./fields');
++const { normalizePhone } = require('../../utils/phone');
++const candidatesService = require('../candidates/candidates.service');
++const { PossibleDuplicateError, ConflictError } = require('../../utils/errors');
++
++const PARSER_VERSION = 'rules-2';
++const RAW_TEXT_CAP = 20000;
++
++/** Parse a single uploaded file into a candidate draft. Never throws. */
++async function parseFile(file, opts = {}) {
++  const base = { fileName: file.originalname, size: file.size };
++  try {
++    const { text, method } = await extractText(file.buffer, file.originalname);
++    const parseOpts = { ...opts, fileName: file.originalname };
++    let parsed = parseResumeText(text, parseOpts);
++    // Light-on-dark banner names are invisible to the normal OCR pass: retry the header inverted.
++    const noRealName = !parsed.candidate.firstName || parsed.warnings.includes('name_guessed_from_email') || parsed.warnings.includes('name_guessed_from_filename');
++    if (method === 'ocr' && noRealName && IMAGE_EXT.has(path.extname(file.originalname).toLowerCase())) {
++      try {
++        const head = await extractImageHeaderInverted(file.buffer);
++        const retry = parseResumeText(`${head}\n${text}`, parseOpts);
++        if (retry.candidate.firstName && !retry.warnings.includes('name_guessed_from_email') && !retry.warnings.includes('name_guessed_from_filename')) parsed = retry;
++      } catch { /* keep the first pass */ }
++    }
++    const c = parsed.candidate;
++    // OCR can misread a digit or a letter without any sign of it, so contact
++    // details from an image are always flagged for a human check.
++    if (method.includes('ocr')) parsed.warnings.push('ocr_verify_contact');
++    // No way to contact them (often not a resume at all, e.g. a job description).
++    if (!c.email && !c.phone) parsed.warnings.push('no_contact_details');
++    const complete = Boolean(c.firstName && (c.email || c.phone));
++    return {
++      ...base,
++      status: complete ? 'parsed' : 'incomplete',
++      extractMethod: method,
++      candidate: c,
++      parsedResume: {
++        parserVersion: PARSER_VERSION,
++        extractMethod: method,
++        experienceYears: parsed.experienceYears,
++        experienceSource: parsed.experienceSource,
++        sourceFileName: file.originalname,
++        rawText: text.slice(0, RAW_TEXT_CAP),
++      },
++      confidence: parsed.confidence,
++      warnings: parsed.warnings,
++    };
++  } catch (err) {
++    if (err instanceof ExtractError) {
++      return { ...base, status: 'failed', errorCode: err.code, error: err.message };
++    }
++    return { ...base, status: 'failed', errorCode: 'internal', error: 'Unexpected error while parsing this file.' };
++  }
++}
++
++/** Parse files one after another (OCR worker is shared, so no parallelism). */
++async function parseMany(files, opts = {}) {
++  const results = [];
++  for (const f of files) results.push(await parseFile(f, opts));
++  flagBatchDuplicates(results);
++  return results;
++}
++
++function flagBatchDuplicates(results) {
++  const seen = new Map();
++  results.forEach((r, i) => {
++    if (r.status === 'failed') return;
++    const keys = [];
++    if (r.candidate.email) keys.push(`e:${r.candidate.email}`);
++    const p = normalizePhone(r.candidate.phone, r.candidate.phoneCountry);
++    if (p) keys.push(`p:${p}`);
++    for (const k of keys) {
++      if (seen.has(k)) {
++        r.warnings.push('duplicate_in_batch');
++        r.duplicateOfIndex = seen.get(k);
++        return;
++      }
++      seen.set(k, i);
++    }
++  });
++}
++
++/**
++ * Best-effort: attach `existingCandidate` to drafts that match someone already
++ * in this org (by email, or by normalised phone — ADR-2). A DB hiccup must not
++ * fail the parse, so errors are swallowed and the check is simply skipped.
++ */
++async function annotateExisting(orgId, results) {
++  try {
++    const emails = [...new Set(results.map(r => r.candidate && r.candidate.email).filter(Boolean))];
++    const phones = [...new Set(results.map(r => r.candidate && normalizePhone(r.candidate.phone, r.candidate.phoneCountry)).filter(Boolean))];
++    const byEmail = new Map();
++    const byPhone = new Map();
++    if (emails.length) {
++      const rows = await db.select().from(schema.candidate)
++        .where(and(eq(schema.candidate.organisationId, orgId), inArray(schema.candidate.email, emails)));
++      rows.forEach(r => byEmail.set(r.email, r));
++    }
++    if (phones.length) {
++      const rows = await db.select().from(schema.candidate)
++        .where(and(eq(schema.candidate.organisationId, orgId), inArray(schema.candidate.phoneNormalized, phones)));
++      rows.forEach(r => byPhone.set(r.phoneNormalized, r));
++    }
++    for (const r of results) {
++      if (!r.candidate) continue;
++      const hit = (r.candidate.email && byEmail.get(r.candidate.email))
++        || byPhone.get(normalizePhone(r.candidate.phone, r.candidate.phoneCountry));
++      if (hit) {
++        r.existingCandidate = { id: hit.id, firstName: hit.firstName, lastName: hit.lastName, email: hit.email, phone: hit.phone };
++        r.warnings.push('already_in_database');
++      }
++    }
++  } catch (err) {
++    console.error('[resume-parser] existing-candidate check skipped:', err.message);
++  }
++  return results;
++}
++
++/**
++ * Create candidates from reviewed drafts. Each item goes through the normal
++ * candidatesService.createCandidate so email conflicts, phone-duplicate
++ * warnings (ADR-2) and audit logging behave exactly as for a manual add.
++ * One bad row never aborts the rest.
++ */
++async function bulkCreate(orgId, userId, { ownerTeamId, items }) {
++  const results = [];
++  for (let i = 0; i < items.length; i++) {
++    const { parsedResume, ...fields } = items[i];
++    const data = { ...fields, ownerTeamId, source: 'resume_upload', sourceRef: fields.sourceRef || (parsedResume && parsedResume.sourceFileName) || undefined };
++    if (parsedResume) data.parsedResume = parsedResume;
++    try {
++      const candidate = await candidatesService.createCandidate(orgId, data, userId);
++      results.push({ index: i, status: 'created', candidate });
++    } catch (err) {
++      if (err instanceof PossibleDuplicateError) {
++        results.push({ index: i, status: 'duplicate', error: err.message, existing: err.data && err.data.possibleDuplicate });
++      } else if (err instanceof ConflictError) {
++        results.push({ index: i, status: 'conflict', error: err.message });
++      } else {
++        results.push({ index: i, status: 'error', error: err.isOperational ? err.message : 'Could not create this candidate.' });
++      }
++    }
++  }
++  return results;
++}
++
++module.exports = { parseFile, parseMany, annotateExisting, bulkCreate, PARSER_VERSION };
+diff --git a/backend/test/fixtures/resumes/not_a_resume.docx b/backend/test/fixtures/resumes/not_a_resume.docx
+new file mode 100644
+index 0000000000000000000000000000000000000000..9105c28ad3d2dd5d887c07acc2d09885bf2655ec
+GIT binary patch
+literal 36659
+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
+DX9Yy4
+
+literal 0
+HcmV?d00001
+
