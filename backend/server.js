@@ -18,7 +18,7 @@ const performanceScheduler = require('./src/features/performance/performance.sch
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 JopUP server running on port ${PORT}`);
+  console.log(`🚀 HireTracker server running on port ${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`   Health check: http://localhost:${PORT}/api/health`);
   dailyTrackerScheduler.start();

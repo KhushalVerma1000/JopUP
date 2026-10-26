@@ -9,6 +9,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { ColumnSwitches } from '../components/mail/ColumnSwitches';
 import { MailPicker } from '../components/mail/MailPicker';
 import { PendingMails } from '../components/mail/PendingMails';
+import { OpenedNote, OpenInMailButton, ProviderSelect } from '../components/mail/OpenInMail';
 import { ReadyChecks } from '../components/mail/ReadyChecks';
 import { useTrackerMail } from '../hooks/useTrackerMail';
 import { cn } from '@/lib/utils';
@@ -40,7 +41,7 @@ export function EmailTrackerPage() {
   const m = useTrackerMail(ids, ids.length > 0, fromHr ? { mailType: hrType, date: hrType ? hrDate : undefined } : { mailType: ready?.kind?.key, date: value.date || undefined, clientId: value.client || undefined });
   const { state, meta } = m;
   const msg = ids.length > 0 ? m.msg : null;
-  const step = !ids.length ? 1 : m.copied === 'table' || m.copied === 'cells' || m.copied === 'text' || m.isSent ? 3 : 2;
+  const step = !ids.length ? 1 : m.copied === 'table' || m.copied === 'cells' || m.copied === 'text' || m.opened || m.isSent ? 3 : 2;
   const pills = state.messages.map((x, i) => ({ i, text: [x.clientName || 'No client', state.messages.filter((y) => y.clientId === x.clientId).length > 1 ? x.locationName : null].filter(Boolean).join(' · '), n: x.candidateCount }));
   const picked = msg ? m.toPick[msg.key] : null;
   const toValue = picked?.length === 1 ? picked[0] : 'all';
@@ -146,16 +147,19 @@ export function EmailTrackerPage() {
             </div>
             <div className={cn('overflow-x-auto rounded-lg border bg-[#FAFBFD] p-4 text-black transition-opacity', state.loading && 'opacity-60')} dangerouslySetInnerHTML={{ __html: msg.html }} />
             <div className="mt-3.5 flex flex-wrap items-center gap-2">
-              <Button type="button" size="lg" onClick={m.copyTable}>{m.copied === 'table' ? <Check /> : null} Copy Table</Button>
+              <OpenInMailButton m={m} />
+              <ProviderSelect m={m} className="h-11 w-auto min-w-[180px] text-[13px]" />
+              <Button type="button" size="lg" variant="outline" onClick={m.copyTable}>{m.copied === 'table' ? <Check /> : null} Copy Table</Button>
               <Button type="button" size="lg" variant="outline" onClick={m.copyCells}>Copy for Excel</Button>
               <Button type="button" size="lg" variant="outline" onClick={m.copyPlain}>Copy as Text</Button>
               <span role="status" className="ml-auto text-[13px] text-emerald-700">{['table', 'cells', 'text'].includes(m.copied) ? `✓ ${m.copied === 'table' ? 'Table' : m.copied === 'cells' ? 'Cells' : 'Text'} copied. Paste it into your mail…` : ''}</span>
             </div>
+            <OpenedNote m={m} className="mt-3" />
             <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-4 text-[13px] text-muted-foreground">
               {m.isSent ? <span className="font-medium text-emerald-700">✓ Logged as sent. It shows in this client's sent history.</span> : (
                 <>
                   After you send:
-                  <Button type="button" variant="outline" disabled={m.sending || !msg.clientId || hasError} onClick={m.markSent}>{m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
+                  <Button type="button" variant={m.opened ? 'default' : 'outline'} disabled={m.sending || !msg.clientId || hasError} onClick={m.markSent}>{m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
                   logs it in {msg.clientName ? `${msg.clientName}'s` : 'the'} sent history.
                 </>
               )}

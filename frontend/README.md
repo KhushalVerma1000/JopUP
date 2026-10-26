@@ -1,4 +1,4 @@
-# JopUP Frontend
+# HireTracker Frontend
 
 React + Vite + Tailwind v4 + shadcn/ui. Covers login, self-service
 registration, a dashboard shell, and the first real workbench (Employees).

@@ -1,4 +1,4 @@
-// Thin fetch wrapper for the JopUP API.
+// Thin fetch wrapper for the HireTracker API.
 //
 // Uses relative paths (`/api/v1/...`) rather than an absolute URL, so this
 // works unchanged whether Vite's dev proxy (see vite.config.js) forwards to
@@ -47,7 +47,7 @@ export async function apiFetch(path, { method = 'GET', body } = {}) {
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   });
 
-  // Every JopUP error response is { status: 'fail', message: '...' } —
+  // Every HireTracker error response is { status: 'fail', message: '...' } —
   // confirmed in backend/src/middlewares/errorHandler.js.
   let payload = null;
   try {

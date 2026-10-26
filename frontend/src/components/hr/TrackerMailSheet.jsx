@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { ColumnSwitches } from '../mail/ColumnSwitches';
+import { OpenedNote, OpenInMailButton, ProviderSelect } from '../mail/OpenInMail';
 import { useTrackerMail } from '../../hooks/useTrackerMail';
 import { cn } from '@/lib/utils';
 
@@ -67,10 +68,13 @@ export function TrackerMailSheet({ open, onClose, trackerIds }) {
               <div className="text-xs text-muted-foreground">Preview · scroll sideways →</div>
               <div className={cn('max-h-72 overflow-auto rounded-lg border bg-[#FAFBFD] p-2 text-black', state.loading && 'opacity-60')} dangerouslySetInnerHTML={{ __html: msg.html }} />
               <div className="sticky bottom-0 -mx-1 flex flex-col gap-2 border-t bg-background px-1 pb-1 pt-3">
-                <Button type="button" size="lg" onClick={m.copyTable}>{m.copied === 'table' ? <><Check /> Copied. Paste it into your mail</> : 'Copy Table'}</Button>
+                <OpenInMailButton m={m} />
+                <ProviderSelect m={m} className="h-10" />
+                <OpenedNote m={m} />
+                <Button type="button" size="lg" variant="outline" onClick={m.copyTable}>{m.copied === 'table' ? <><Check /> Copied. Paste it into your mail</> : 'Copy Table'}</Button>
                 <div className="grid grid-cols-2 gap-2">
                   <Button type="button" variant="outline" size="lg" onClick={m.copyPlain}>{m.copied === 'text' ? 'Copied' : 'Copy as Text'}</Button>
-                  <Button type="button" variant="outline" size="lg" disabled={m.sending || m.isSent || !msg.clientId} onClick={m.markSent}>{m.isSent ? '✓ Sent' : m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
+                  <Button type="button" variant={m.opened && !m.isSent ? 'default' : 'outline'} size="lg" disabled={m.sending || m.isSent || !msg.clientId} onClick={m.markSent}>{m.isSent ? '✓ Sent' : m.sending ? 'Logging…' : 'Mark as Sent'}</Button>
                 </div>
               </div>
             </>

@@ -6,6 +6,7 @@ const { parseResumeText } = require('./fields');
 const { normalizePhone } = require('../../utils/phone');
 const candidatesService = require('../candidates/candidates.service');
 const { PossibleDuplicateError, ConflictError } = require('../../utils/errors');
+const { spendCredits, refundCredits } = require('../../utils/credits');
 
 const PARSER_VERSION = 'rules-2';
 const RAW_TEXT_CAP = 20000;
@@ -127,6 +128,9 @@ async function annotateExisting(orgId, results) {
  * One bad row never aborts the rest.
  */
 async function bulkCreate(orgId, userId, { ownerTeamId, items }) {
+  // Charge the whole batch up front (402 if the balance can't cover it), then
+  // give back the credits for rows that did not become candidates.
+  const charge = await spendCredits(orgId, userId, 'candidate_db', 'bulk_import', { qty: items.length, entityType: 'candidate_batch' });
   const results = [];
   for (let i = 0; i < items.length; i++) {
     const { parsedResume, ...fields } = items[i];
@@ -144,6 +148,13 @@ async function bulkCreate(orgId, userId, { ownerTeamId, items }) {
         results.push({ index: i, status: 'error', error: err.isOperational ? err.message : 'Could not create this candidate.' });
       }
     }
+  }
+  const notCreated = results.filter((r) => r.status !== 'created').length;
+  if (charge && notCreated > 0) {
+    const unit = charge.amount / items.length;
+    try {
+      await refundCredits(orgId, userId, unit * notCreated, 'candidate_db', 'bulk_import', null, 'candidate_batch', `Refund: ${notCreated} row(s) not created`);
+    } catch (err) { console.error(`[credits] bulk import refund failed: ${err.message}`); }
   }
   return results;
 }

@@ -1,6 +1,6 @@
 /**
  * How a stage is NAMED in outgoing communication — group chats and client
- * emails — as opposed to how it is named inside JopUP.
+ * emails — as opposed to how it is named inside HireTracker.
  *
  * Recruiters say a candidate has "Reached" when the workflow says "Turn up".
  * That is a wording choice for the audience, so it lives here, keyed by the

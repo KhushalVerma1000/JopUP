@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { copyText } from '../lib/clipboard';
 import { copyRich } from '../lib/richCopy';
+import { buildBody, buildComposeUrl } from '../lib/composeLinks';
+import { useAuth } from '../context/AuthContext';
 import { errorMessage } from './useFetch';
+import { useMailProvider } from './useMailProvider';
 
 const STANDARD = ['candidate_name', 'mobile', 'position', 'location', 'lineup_time'];
 
@@ -22,6 +25,9 @@ export function useTrackerMail(trackerIds, active = true, extra = {}) {
   const [copied, setCopied] = useState(null);
   const [sent, setSent] = useState({});
   const [sending, setSending] = useState(false);
+  const [opened, setOpened] = useState(null);                // last "Open in Gmail/Outlook": { key, copied, blocked, url, truncated }
+  const { user } = useAuth();
+  const [provider, setProvider] = useMailProvider(user?.id);
   const timer = useRef(null);
   const idsKey = trackerIds.join(',');
   // The Email Tracker tab says which kind of mail this is, which client, and which day.
@@ -32,7 +38,7 @@ export function useTrackerMail(trackerIds, active = true, extra = {}) {
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
-    setTemplateId(''); setCustom(null); setToPick({}); setIdx(0); setSubjects({}); setCopied(null); setSent({});
+    setTemplateId(''); setCustom(null); setToPick({}); setIdx(0); setSubjects({}); setCopied(null); setSent({}); setOpened(null);
     Promise.all([apiFetch('/api/v1/mail/templates'), apiFetch('/api/v1/mail/columns')])
       .then(([t, c]) => { if (!cancelled) setMeta({ templates: t.data, catalogue: c.data, error: null }); })
       .catch((err) => { if (!cancelled) setMeta({ templates: [], catalogue: [], error: errorMessage(err, 'Could not load the tracker templates.') }); });
@@ -69,6 +75,25 @@ export function useTrackerMail(trackerIds, active = true, extra = {}) {
     timer.current = setTimeout(() => setCopied(null), 1800);
   };
 
+  // Everything here runs inside the click, before any await, so the browser lets us
+  // write the clipboard and open the new window. Copy first, then open: if the compose
+  // window steals focus quickly, the table is already on the clipboard.
+  function openInMail() {
+    if (!msg) return;
+    const key = msg.key;
+    const body = buildBody({ recipientNames: msg.to.map((r) => r.name), senderName: [user?.firstName, user?.lastName].filter(Boolean).join(' ') });
+    const { url, truncated } = buildComposeUrl(provider, { to: msg.to.map((r) => r.email), cc: msg.cc.map((r) => r.email), subject, body });
+    const copying = copyRich(msg.html, msg.text);
+    let blocked = false;
+    if (provider === 'mailto') {
+      window.location.href = url;
+    } else {
+      const win = window.open(url, '_blank');
+      if (win) win.opener = null; else blocked = true;
+    }
+    copying.then((copiedOk) => setOpened({ key, copied: !!copiedOk, blocked, url, truncated }));
+  }
+
   async function markSent() {
     setSending(true);
     try {
@@ -90,6 +115,7 @@ export function useTrackerMail(trackerIds, active = true, extra = {}) {
     copied, copyTable: () => copyRich(msg.html, msg.text).then((ok) => flash('table', ok)),
     copyPlain: () => copyText(msg.text).then((ok) => flash('text', ok)), copyCells: () => copyText(msg.tsv).then((ok) => flash('cells', ok)),
     copyAddresses: (which, list) => copyText(list.map((r) => r.email).join('; ')).then((ok) => flash(which, ok)),
+    provider, setProvider, openInMail, opened: opened && opened.key === sentKey ? opened : null,
     isSent: !!sent[sentKey], sending, markSent,
   };
 }

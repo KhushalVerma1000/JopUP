@@ -42,7 +42,7 @@ async function sendEmail({ to, cc, bcc, subject, html, text, from, replyTo }) {
   if (!provider) throw new Error(`Unknown EMAIL_PROVIDER '${name}'`);
 
   const payload = {
-    from: from || process.env.EMAIL_FROM || 'JopUP <onboarding@resend.dev>',
+    from: from || process.env.EMAIL_FROM || 'HireTracker <onboarding@resend.dev>',
     to: Array.isArray(to) ? to : [to],
     ...(cc && cc.length ? { cc } : {}),
     ...(bcc && bcc.length ? { bcc } : {}),

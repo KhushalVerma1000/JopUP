@@ -13,7 +13,7 @@ export function PlatformOverview() {
 
   return (
     <AppLayout wide>
-      <PageHeader title="Platform overview" subtitle="Every organisation enrolled on JopUP." />
+      <PageHeader title="Platform overview" subtitle="Every organisation enrolled on HireTracker." />
       <ErrorNote onRetry={reload}>{error}</ErrorNote>
       {loading && !data && <Loading />}
       {data && <Body m={data} />}

@@ -21,7 +21,7 @@ function invitationEmail({ orgName, inviterName, roleName, teamName, token, expi
   <table role="presentation" width="100%" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:32px">
     <tr><td>
       <h2 style="margin:0 0 16px;font-size:20px">You're invited to join ${esc(orgName)}</h2>
-      <p style="margin:0 0 16px;line-height:1.5">${who} invited you to join <strong>${esc(orgName)}</strong> on JopUP as <strong>${esc(role)}</strong>${teamLine}.</p>
+      <p style="margin:0 0 16px;line-height:1.5">${who} invited you to join <strong>${esc(orgName)}</strong> on HireTracker as <strong>${esc(role)}</strong>${teamLine}.</p>
       <p style="margin:24px 0"><a href="${esc(url)}" style="background:#18181b;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;display:inline-block">Accept invitation</a></p>
       <p style="margin:0 0 8px;font-size:13px;color:#52525b">This link expires on ${esc(expires)}. If the button doesn't work, paste this into your browser:</p>
       <p style="margin:0 0 16px;font-size:13px;word-break:break-all;color:#52525b">${esc(url)}</p>
@@ -30,7 +30,7 @@ function invitationEmail({ orgName, inviterName, roleName, teamName, token, expi
   </table>
 </body></html>`;
 
-  return { subject: `You're invited to join ${orgName} on JopUP`, html };
+  return { subject: `You're invited to join ${orgName} on HireTracker`, html };
 }
 
 module.exports = { invitationEmail, buildAcceptUrl };

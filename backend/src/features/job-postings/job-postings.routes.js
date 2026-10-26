@@ -4,13 +4,14 @@ const controller = require('./job-postings.controller');
 const validate = require('../../middlewares/validate');
 const schema = require('./job-postings.schema');
 const { requireAuth, requirePermission } = require('../../middlewares/requireAuth');
+const requireLimit = require('../../middlewares/requireLimit');
 const requireModule = require('../../middlewares/requireModule');
 
 router.use(requireAuth, requireModule('job_posting'));
 
 router.get('/', requirePermission('job_postings', 'read'), controller.list.bind(controller));
 router.get('/:id', requirePermission('job_postings', 'read'), validate(schema.jobPostingParamsSchema), controller.getById.bind(controller));
-router.post('/', requirePermission('job_postings', 'write'), validate(schema.createJobPostingSchema), controller.create.bind(controller));
+router.post('/', requirePermission('job_postings', 'write'), validate(schema.createJobPostingSchema), requireLimit('max_job_postings'), controller.create.bind(controller));
 router.patch('/:id', requirePermission('job_postings', 'write'), validate(schema.updateJobPostingSchema), controller.update.bind(controller));
 router.delete('/:id', requirePermission('job_postings', 'delete'), validate(schema.jobPostingParamsSchema), controller.remove.bind(controller));
 

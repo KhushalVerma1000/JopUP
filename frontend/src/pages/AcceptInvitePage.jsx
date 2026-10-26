@@ -87,7 +87,7 @@ export function AcceptInvitePage() {
           <CardHeader>
             <CardTitle className="text-xl">Accept your invitation</CardTitle>
             <CardDescription>
-              Set up your account to join your team on JopUP. Use the same email address the invitation was sent to
+              Set up your account to join your team on HireTracker. Use the same email address the invitation was sent to
               when you sign in later.
             </CardDescription>
             {isAuthenticated && (

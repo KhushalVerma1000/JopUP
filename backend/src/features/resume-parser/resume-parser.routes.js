@@ -6,6 +6,7 @@ const validate = require('../../middlewares/validate');
 const schema = require('./resume-parser.schema');
 const { requireAuth, requirePermission } = require('../../middlewares/requireAuth');
 const requireModule = require('../../middlewares/requireModule');
+const requireLimit = require('../../middlewares/requireLimit');
 const { BadRequestError } = require('../../utils/errors');
 
 const MAX_FILES = 50;
@@ -32,6 +33,6 @@ router.use(requireAuth, requireModule('candidate_db'));
 // Step 1: upload resumes, get parsed drafts back (nothing is saved).
 router.post('/parse', requirePermission('candidates', 'write'), handleUpload, controller.parse.bind(controller));
 // Step 2: send the reviewed drafts, candidates are created.
-router.post('/bulk-create', requirePermission('candidates', 'write'), validate(schema.bulkCreateSchema), controller.bulkCreate.bind(controller));
+router.post('/bulk-create', requirePermission('candidates', 'write'), validate(schema.bulkCreateSchema), requireLimit('max_candidates', (req) => req.body.items.length), controller.bulkCreate.bind(controller));
 
 module.exports = router;

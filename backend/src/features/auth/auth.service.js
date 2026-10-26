@@ -33,7 +33,7 @@ function toPublicUser(user) {
   return out;
 }
 
-const TRIAL_FALLBACK_DAYS = 14;
+const TRIAL_FALLBACK_DAYS = 90;
 
 function slugify(text) {
   return String(text)
@@ -414,7 +414,7 @@ class AuthService {
       .from(schema.organisation)
       .where(eq(schema.organisation.id, user.organisationId));
     if (org && (org.status === 'suspended' || org.status === 'cancelled')) {
-      throw new UnauthorizedError('This workspace is suspended. Contact JopUP support');
+      throw new UnauthorizedError('This workspace is suspended. Contact HireTracker support');
     }
 
     const roles = await this.getActiveRoles(user.id);

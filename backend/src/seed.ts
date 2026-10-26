@@ -167,10 +167,11 @@ const PLANS = [
       max_clients: 20,
       max_job_postings: 10,
       max_storage_mb: 1024,
+      trial_resume_parses_per_month: 500,
     },
     creditAllowance: 100,
     creditsEnabled: true,
-    trialDays: 14,
+    trialDays: 90,
   },
   {
     name: "Pro",
@@ -196,10 +197,11 @@ const PLANS = [
       max_clients: 100,
       max_job_postings: 50,
       max_storage_mb: 10240,
+      trial_resume_parses_per_month: 500,
     },
     creditAllowance: 500,
     creditsEnabled: true,
-    trialDays: 14,
+    trialDays: 90,
   },
   {
     name: "Enterprise",
@@ -228,10 +230,11 @@ const PLANS = [
       max_clients: -1,
       max_job_postings: -1,
       max_storage_mb: -1,
+      trial_resume_parses_per_month: 500,
     },
     creditAllowance: 2000,
     creditsEnabled: true,
-    trialDays: 30,
+    trialDays: 90,
   },
 ];
 
@@ -243,7 +246,7 @@ const CREDIT_COSTS = [
   { moduleKey: "sms_notifications", actionKey: "send_bulk_sms", description: "Bulk SMS (per recipient)", cost: 1 },
 
   // Resume parsing
-  { moduleKey: "candidate_db", actionKey: "resume_parse", description: "Parse uploaded resume", cost: 3 },
+  // Resume parsing is free; trials are capped by usage_counter (trial_resume_parses_per_month), not credits.
   { moduleKey: "candidate_db", actionKey: "bulk_import", description: "Bulk candidate import (per record)", cost: 1 },
 
   // Job portal

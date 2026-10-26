@@ -107,7 +107,7 @@ async function main() {
   if (!(await exists("jopup-platform"))) {
     const plan = planBySlug("enterprise");
     const [platformOrg] = await db.insert(schema.organisation).values({
-      planId: plan.id, name: "JopUP Platform", slug: "jopup-platform", status: "active", timezone: "UTC",
+      planId: plan.id, name: "HireTracker Platform", slug: "jopup-platform", status: "active", timezone: "UTC",
     }).returning();
     const owner = await makeUser(platformOrg.id, "owner@jopup.dev", "Priya", "Owner");
     await grant(owner.id, "platform_owner", null, owner.id);

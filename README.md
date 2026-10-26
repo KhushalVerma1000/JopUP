@@ -1,4 +1,4 @@
-# JopUP Beta Testing Kit
+# HireTracker Beta Testing Kit
 
 This was tested for real: Postgres installed, migrated, seeded, server run, and the
 full `jopup-e2e-test.sh` suite executed end to end. Current state: **87/87 e2e

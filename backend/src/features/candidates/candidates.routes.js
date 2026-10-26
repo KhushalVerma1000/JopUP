@@ -5,12 +5,13 @@ const validate = require('../../middlewares/validate');
 const schema = require('./candidates.schema');
 const { requireAuth, requirePermission } = require('../../middlewares/requireAuth');
 const requireModule = require('../../middlewares/requireModule');
+const requireLimit = require('../../middlewares/requireLimit');
 
 router.use(requireAuth, requireModule('candidate_db'));
 
 router.get('/', requirePermission('candidates', 'read'), controller.list.bind(controller));
 router.get('/:id', requirePermission('candidates', 'read'), validate(schema.getCandidateParamsSchema), controller.getById.bind(controller));
-router.post('/', requirePermission('candidates', 'write'), validate(schema.createCandidateSchema), controller.create.bind(controller));
+router.post('/', requirePermission('candidates', 'write'), validate(schema.createCandidateSchema), requireLimit('max_candidates'), controller.create.bind(controller));
 router.patch('/:id', requirePermission('candidates', 'write'), validate(schema.updateCandidateSchema), controller.update.bind(controller));
 router.delete('/:id', requirePermission('candidates', 'delete'), validate(schema.getCandidateParamsSchema), controller.remove.bind(controller));
 router.post('/:id/access', requirePermission('candidates', 'share'), validate(schema.grantAccessSchema), controller.grantAccess.bind(controller));

@@ -276,10 +276,10 @@ class DailyTrackersService {
       const [existing] = await tx.select().from(schema.emailSenderIdentity)
         .where(and(eq(schema.emailSenderIdentity.organisationId, orgId), eq(schema.emailSenderIdentity.isDefault, true)));
       if (existing) return existing;
-      const raw = process.env.EMAIL_FROM || 'JopUP <onboarding@resend.dev>';
+      const raw = process.env.EMAIL_FROM || 'HireTracker <onboarding@resend.dev>';
       const m = raw.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
       const [created] = await tx.insert(schema.emailSenderIdentity).values({
-        organisationId: orgId, fromName: m ? (m[1] || 'JopUP') : 'JopUP', fromEmail: m ? m[2] : raw, isVerified: true, isDefault: true,
+        organisationId: orgId, fromName: m ? (m[1] || 'HireTracker') : 'HireTracker', fromEmail: m ? m[2] : raw, isVerified: true, isDefault: true,
       }).returning();
       return created;
     });

@@ -234,3 +234,6 @@ export {
 
 // ── 20 · Pipeline automation rules ────────────
 export { automationRule } from "./20-automation";
+
+// ── 21 · Usage counters (metered allowances) ──
+export { usageCounter } from "./21-usage";

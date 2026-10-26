@@ -26,6 +26,8 @@ const performanceRoutes = require('./features/performance/performance.routes');
 const analyticsRoutes = require('./features/analytics/analytics.routes');
 const creditsRoutes = require('./features/credits/credits.routes');
 const platformRoutes = require('./features/platform/platform.routes');
+const billingRoutes = require('./features/billing/billing.routes');
+const writeGuard = require('./middlewares/writeGuard');
 const portalRoutes = require('./features/job-portal/job-portal.routes');
 
 const app = express();
@@ -46,6 +48,7 @@ if (process.env.NODE_ENV === 'production') {
 app.use('/api/v1/resume-parser/bulk-create', express.json({ limit: '10mb' }));
 app.use(express.json());
 app.use(tenant); // Extracts tenant ID from headers globally
+app.use(writeGuard); // Expired trial / suspended workspace = read-only
 
 // Basic Health Endpoint
 app.get('/api/health', (req, res) => {
@@ -75,6 +78,7 @@ app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/credits', creditsRoutes);
 app.use('/api/v1/portal', portalRoutes);
 app.use('/api/v1/platform', platformRoutes);
+app.use('/api/v1/billing', billingRoutes);
 
 // Centralized Error Handling Middleware
 app.use(errorHandler);
