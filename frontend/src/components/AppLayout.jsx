@@ -50,7 +50,7 @@ export function AppLayout({ children, wide = false }) {
       {/* Desktop sidebar — fixed to the left edge on md+. Phones use the tab bar below. */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r bg-background md:flex">
         <div className="flex h-14 shrink-0 items-center border-b px-5">
-          <Link to={auth.homePath} className="text-lg font-bold tracking-tight text-primary">HireTracker</Link>
+          <Link to={auth.homePath} className="inline-flex items-center gap-2 text-lg font-bold tracking-tight text-primary"><img src="/logo-mark.svg" alt="" className="size-7 rounded-md" aria-hidden />HireTracker</Link>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3" aria-label="Primary">
@@ -101,7 +101,7 @@ export function AppLayout({ children, wide = false }) {
         {/* Phone header — brand + sign out. Hidden on md+ where the sidebar takes over. */}
         <header className="pt-safe sticky top-0 z-30 border-b bg-background/95 backdrop-blur md:hidden">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4">
-            <Link to={auth.homePath} className="text-lg font-bold tracking-tight text-primary">HireTracker</Link>
+            <Link to={auth.homePath} className="inline-flex items-center gap-2 text-lg font-bold tracking-tight text-primary"><img src="/logo-mark.svg" alt="" className="size-7 rounded-md" aria-hidden />HireTracker</Link>
             <Avatar name={name} className="size-9" />
           </div>
         </header>

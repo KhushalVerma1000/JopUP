@@ -1,0 +1,24 @@
+# Render Blueprint: backend only (frontend is on Vercel).
+# Render dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: hiretrack-api
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: EMAIL_PROVIDER
+        value: console          # change to resend once RESEND_API_KEY / EMAIL_FROM are set
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false             # paste your Neon/Supabase pooled connection string
+      - key: APP_URL
+        sync: false             # your Vercel URL, e.g. https://hiretrack.vercel.app
