@@ -11,6 +11,11 @@ const DAY_MS = 86400000;
 const STANDARD_TRIAL_DAYS = 30;
 const EXTENDED_TRIAL_DAYS = 90;
 
+// Every self-serve signup starts here. The request cannot pick a plan: the
+// premium tiers are tasted through the time-boxed preview (see entitlements.js
+// previewState) or granted by a platform admin after an email request.
+const DEFAULT_TRIAL_PLAN_SLUG = 'starter';
+
 // Domains nobody owns: a "@gmail.com" selection would hand 90 days to everyone.
 const FREE_MAIL_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.in', 'yahoo.co.in', 'outlook.com', 'hotmail.com', 'live.com',
@@ -71,7 +76,17 @@ function standardEnd(createdAt) {
   return new Date(new Date(createdAt).getTime() + STANDARD_TRIAL_DAYS * DAY_MS);
 }
 
+/**
+ * Credits a new trial workspace starts with. A plan may set
+ * limits.trial_credits (a small taste); otherwise it gets the plan allowance.
+ */
+function trialCreditsFor(plan) {
+  const v = plan && plan.limits ? Number(plan.limits.trial_credits) : NaN;
+  if (Number.isFinite(v) && v >= 0) return Math.floor(v);
+  return Math.max(0, Math.floor(Number(plan && plan.creditAllowance) || 0));
+}
+
 module.exports = {
-  STANDARD_TRIAL_DAYS, EXTENDED_TRIAL_DAYS, FREE_MAIL_DOMAINS,
+  STANDARD_TRIAL_DAYS, EXTENDED_TRIAL_DAYS, DEFAULT_TRIAL_PLAN_SLUG, FREE_MAIL_DOMAINS, trialCreditsFor,
   normalizeSelection, matchKeys, trialFor, extendedEnd, standardEnd,
 };

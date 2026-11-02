@@ -27,6 +27,7 @@ const analyticsRoutes = require('./features/analytics/analytics.routes');
 const creditsRoutes = require('./features/credits/credits.routes');
 const platformRoutes = require('./features/platform/platform.routes');
 const billingRoutes = require('./features/billing/billing.routes');
+const trialRequestsRoutes = require('./features/trial-requests/trial-requests.routes');
 const writeGuard = require('./middlewares/writeGuard');
 const portalRoutes = require('./features/job-portal/job-portal.routes');
 
@@ -79,6 +80,7 @@ app.use('/api/v1/credits', creditsRoutes);
 app.use('/api/v1/portal', portalRoutes);
 app.use('/api/v1/platform', platformRoutes);
 app.use('/api/v1/billing', billingRoutes);
+app.use('/api/v1/trial-requests', trialRequestsRoutes);
 
 // Centralized Error Handling Middleware
 app.use(errorHandler);

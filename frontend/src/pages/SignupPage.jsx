@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
-import { Check, Circle, Eye, EyeOff, ArrowLeft, Loader2, ShieldCheck, CreditCard, Users } from 'lucide-react';
+import { Check, Circle, Eye, EyeOff, ArrowLeft, Loader2, ShieldCheck, CreditCard, Users, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFetch, errorMessage } from '../hooks/useFetch';
 import { AuthShell } from '../components/AuthShell';
@@ -35,11 +35,15 @@ const MODULE_LABELS = {
   job_portal: 'Job portal', analytics: 'Analytics', ai_screening: 'AI screening', sms_notifications: 'SMS',
 };
 
+// Listed in the plan data but not built yet: never shown to a prospect as something they get.
+const NOT_BUILT = new Set(['ai_screening', 'sms_notifications', 'analytics']);
+
 const fmt = (n) => (n < 0 ? 'Unlimited' : Number(n).toLocaleString('en-IN'));
-function limitLine(limits = {}) {
+function limitLine(limits = {}, creditsPerMonth) {
   const bits = [];
   if (limits.max_teams !== undefined) bits.push(`${fmt(limits.max_teams)} teams`);
   if (limits.max_candidates !== undefined) bits.push(`${fmt(limits.max_candidates)} candidates`);
+  if (Number(creditsPerMonth) > 0) bits.push(`${fmt(creditsPerMonth)} credits/mo`);
   return bits.join(' · ');
 }
 
@@ -81,7 +85,6 @@ export function SignupPage() {
   const [params, setParams] = useSearchParams();
   const finePointer = typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches;
 
-  const [planSlug, setPlanSlug] = useState('starter');
   const [form, setForm] = useState({
     companyName: '', firstName: '', lastName: '', email: '', password: '',
     defaultCountry: TZ_COUNTRY[tz] || 'IN',
@@ -114,7 +117,11 @@ export function SignupPage() {
   if (isAuthenticated) return <Navigate to={homePath} replace />;
 
   const plans = (data?.plans || []).slice().sort((a, b) => Number(a.priceMonthly) - Number(b.priceMonthly));
-  const selected = plans.find((p) => p.slug === planSlug);
+  // Everyone starts on the cheapest self-serve plan; higher plans are tasted, not picked.
+  const starter = plans.find((p) => p.selfServe !== false) || plans[0];
+  const previewDays = Number(starter?.limits?.trial_preview_days) || 0;
+  const previewSlug = starter?.limits?.trial_preview_plan || null;
+  const previewPlan = plans.find((p) => p.slug === previewSlug);
   const errors = validate(form);
   const update = (field) => (e) => { setError(null); setForm((f) => ({ ...f, [field]: e.target.value })); };
   const blur = (field) => () => setTouched((t) => ({ ...t, [field]: true }));
@@ -123,17 +130,6 @@ export function SignupPage() {
   const fieldProps = (field) => ({
     onBlur: blur(field), 'aria-invalid': !!show(field) || undefined, 'aria-describedby': `${field}-msg`,
   });
-
-  // APG radio group: arrows move the selection and focus, Tab leaves the group.
-  function onPlanKey(e) {
-    const dir = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
-    if (!dir || !plans.length) return;
-    e.preventDefault();
-    const i = Math.max(0, plans.findIndex((p) => p.slug === planSlug));
-    const next = plans[(i + dir + plans.length) % plans.length];
-    setPlanSlug(next.slug);
-    requestAnimationFrame(() => e.currentTarget.querySelector(`[data-plan="${next.slug}"]`)?.focus());
-  }
 
   function goNext(e) {
     e.preventDefault();
@@ -157,7 +153,7 @@ export function SignupPage() {
       // Trial length is not sent: the server decides it.
       await signup({
         ...form, companyName: form.companyName.trim(), firstName: form.firstName.trim(), lastName: form.lastName.trim(),
-        email: form.email.trim(), planSlug, timezone: tz,
+        email: form.email.trim(), timezone: tz,
       });
       navigate('/', { replace: true });
     } catch (err) {
@@ -249,53 +245,61 @@ export function SignupPage() {
 
                   <div className="grid gap-2">
                     <div className="flex items-center justify-between">
-                      <Label>Plan</Label>
+                      <Label>Your trial</Label>
                       {plans.length > 1 && (
-                        <button type="button" onClick={() => setShowPlans((v) => !v)} className="min-h-11 text-xs font-medium text-primary underline-offset-4 hover:underline">
+                        <button type="button" onClick={() => setShowPlans((v) => !v)} aria-expanded={showPlans} className="min-h-11 text-xs font-medium text-primary underline-offset-4 hover:underline">
                           {showPlans ? 'Hide plans' : 'Compare plans'}
                         </button>
                       )}
                     </div>
                     {plansLoading && <p className="text-sm text-muted-foreground">Loading plans…</p>}
-                    {plansError && <p className="text-sm text-muted-foreground">Couldn’t load plans. You’ll start on Starter and can change it later.</p>}
+                    {plansError && <p className="text-sm text-muted-foreground">Couldn’t load plans. You’ll start on Starter, free for {TRIAL_DAYS} days.</p>}
 
-                    {!showPlans && selected && (
-                      <div className="flex items-center justify-between gap-3 rounded-xl border bg-accent/30 p-3 text-sm">
-                        <span className="min-w-0 truncate"><span className="font-semibold">{selected.name}</span> <span className="text-muted-foreground tabular-nums">· {limitLine(selected.limits)}</span></span>
-                        <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">{formatMoney(selected.priceMonthly)}/mo after trial</span>
+                    {!showPlans && starter && (
+                      <div className="rounded-xl border bg-accent/30 p-3 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="min-w-0 truncate"><span className="font-semibold">Starts on {starter.name}</span> <span className="text-muted-foreground tabular-nums">· {limitLine(starter.limits)}</span></span>
+                          <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">{formatMoney(starter.priceMonthly)}/mo after trial</span>
+                        </div>
+                        {previewDays > 0 && (
+                          <p className="mt-1.5 flex items-center gap-1.5 text-xs">
+                            <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
+                            <span><strong>{previewPlan?.name || 'Pro'} features free for your first {previewDays} days</strong>: KPIs, goals, reviews and strategy.</span>
+                          </p>
+                        )}
                       </div>
                     )}
 
                     {showPlans && (
-                      <div className="grid gap-2" role="radiogroup" aria-label="Plan" onKeyDown={onPlanKey}>
+                      <ul className="grid gap-2" aria-label="Plans">
                         {plans.map((p) => {
-                          const active = p.slug === planSlug;
+                          const request = p.selfServe === false;
+                          const tasted = p.slug === previewSlug && previewDays > 0;
                           return (
-                            <button
-                              key={p.id} type="button" role="radio" aria-checked={active} tabIndex={active ? 0 : -1} data-plan={p.slug} onClick={() => setPlanSlug(p.slug)}
-                              className={cn('flex items-start gap-3 rounded-xl border p-3 text-left transition-colors', active ? 'border-primary bg-accent/50 ring-2 ring-primary/30' : 'hover:bg-accent/30')}
-                            >
-                              <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border', active && 'border-primary bg-primary text-primary-foreground')}>
-                                {active && <Check className="size-3" />}
+                            <li key={p.id} className={cn('rounded-xl border p-3', tasted && 'border-primary bg-accent/40 ring-2 ring-primary/20')}>
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="font-semibold">{p.name}</span>
+                                <span className="text-sm font-medium tabular-nums">{formatMoney(p.priceMonthly)}<span className="text-xs text-muted-foreground">/mo after trial</span></span>
+                              </div>
+                              {tasted && <span className="mt-1 inline-block rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">Most popular · free for {previewDays} days</span>}
+                              {p.id === starter?.id && <span className="mt-1 inline-block rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">Your trial starts here</span>}
+                              <span className="mt-1 block text-xs text-muted-foreground">{p.description}</span>
+                              <span className="mt-1 block text-xs tabular-nums text-muted-foreground">{limitLine(p.limits, p.creditAllowance)}</span>
+                              <span className="mt-1.5 flex flex-wrap gap-1">
+                                {(p.modules || []).filter((m) => !NOT_BUILT.has(m)).slice(0, 6).map((m) => (
+                                  <span key={m} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{MODULE_LABELS[m] || m}</span>
+                                ))}
+                                {(p.modules || []).filter((m) => !NOT_BUILT.has(m)).length > 6 && <span className="px-1 text-[11px] text-muted-foreground">+{p.modules.filter((m) => !NOT_BUILT.has(m)).length - 6} more</span>}
                               </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="flex items-baseline justify-between gap-2">
-                                  <span className="font-semibold">{p.name}</span>
-                                  <span className="text-sm font-medium tabular-nums">{formatMoney(p.priceMonthly)}<span className="text-xs text-muted-foreground">/mo after trial</span></span>
-                                </span>
-                                <span className="block text-xs text-muted-foreground">{p.description}</span>
-                                <span className="mt-1 block text-xs tabular-nums text-muted-foreground">{limitLine(p.limits)}</span>
-                                <span className="mt-1.5 flex flex-wrap gap-1">
-                                  {(p.modules || []).slice(0, 6).map((m) => (
-                                    <span key={m} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{MODULE_LABELS[m] || m}</span>
-                                  ))}
-                                  {(p.modules || []).length > 6 && <span className="px-1 text-[11px] text-muted-foreground">+{p.modules.length - 6} more</span>}
-                                </span>
-                              </span>
-                            </button>
+                              {request && (
+                                <Link to="/enterprise-trial" className="mt-1 inline-flex min-h-11 items-center text-xs font-medium text-primary underline-offset-4 hover:underline">
+                                  Request an {p.name} trial
+                                </Link>
+                              )}
+                            </li>
                           );
                         })}
-                      </div>
+                      </ul>
                     )}
                   </div>
                   <p aria-live="polite" className={cn('rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive', !error && 'hidden')}>{error}</p>

@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SignupPage } from './pages/SignupPage';
+import { RequestPlanPage } from './pages/RequestPlanPage';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { EmployeesPage } from './pages/EmployeesPage';
@@ -49,6 +50,9 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/login/:orgSlug" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          {/* Enterprise is requested by email, Pro until online payment exists. Open to anyone, signed in or not. */}
+          <Route path="/enterprise-trial" element={<RequestPlanPage />} />
+          <Route path="/upgrade" element={<RequestPlanPage />} />
           {/* Target of the link in the invitation email (backend templates/invitation.js) */}
           <Route path="/accept-invite" element={<AcceptInvitePage />} />
           <Route path="/register" element={<RegisterPage />} />

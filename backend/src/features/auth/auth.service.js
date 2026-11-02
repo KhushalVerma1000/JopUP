@@ -193,11 +193,15 @@ class AuthService {
    * straight away.
    */
   async signupOrganisation(data) {
-    const planSlug = data.planSlug || 'starter';
+    // The request cannot choose a plan: everyone starts on the entry plan and tastes
+    // higher tiers through the preview. (data.planSlug is ignored on purpose.)
+    const planSlug = trialRules.DEFAULT_TRIAL_PLAN_SLUG;
     const [plan] = await db.select().from(schema.plan).where(eq(schema.plan.slug, planSlug));
     if (!plan || plan.status !== 'active' || !plan.isPublic) {
       throw new BadRequestError('That plan is not available');
     }
+    // A small starting balance (plan.limits.trial_credits) so credits can be tasted, not drained.
+    const startCredits = trialRules.trialCreditsFor(plan);
 
     const orgAdminRole = await db.query.role.findFirst({ where: eq(schema.role.name, 'org_admin') });
     if (!orgAdminRole) {
@@ -246,8 +250,8 @@ class AuthService {
 
       await tx.insert(schema.creditAccount).values({
         organisationId: org.id,
-        balance: plan.creditAllowance || 0,
-        lifetimeEarned: plan.creditAllowance || 0,
+        balance: startCredits,
+        lifetimeEarned: startCredits,
         lifetimeSpent: 0,
       });
 

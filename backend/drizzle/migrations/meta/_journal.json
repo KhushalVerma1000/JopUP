@@ -64,6 +64,13 @@
       "when": 1793200000000,
       "tag": "0009_trial_tiers",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793250000000,
+      "tag": "0011_plan_tiers",
+      "breakpoints": true
     }
   ]
 }

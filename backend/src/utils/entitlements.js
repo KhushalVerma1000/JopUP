@@ -45,6 +45,47 @@ function writeBlock(org, now = new Date()) {
   return null;
 }
 
+const DAY_MS = 86400000;
+
+/**
+ * The time-boxed "taste" of a higher plan during a trial.
+ * Configured on the org's own plan: limits.trial_preview_days and
+ * limits.trial_preview_plan (a plan slug, e.g. "pro"). Counted from signup and
+ * DERIVED like trial expiry, so no scheduler has to switch it off.
+ * @returns {{configured:boolean, active:boolean, daysLeft:number, endsAt:Date|null, planSlug:string|null}}
+ */
+function previewState(org, plan, now = new Date()) {
+  const none = { configured: false, active: false, daysLeft: 0, endsAt: null, planSlug: null };
+  const limits = (plan && plan.limits) || {};
+  const days = Number(limits.trial_preview_days);
+  const slug = limits.trial_preview_plan || null;
+  if (!org || org.status !== 'trialing' || !org.createdAt || !slug || !Number.isFinite(days) || days <= 0) return none;
+  const endsAt = new Date(new Date(org.createdAt).getTime() + days * DAY_MS);
+  const trialOver = org.trialEndsAt && new Date(org.trialEndsAt).getTime() <= now.getTime();
+  const ms = endsAt.getTime() - now.getTime();
+  const active = ms > 0 && !trialOver;
+  return { configured: true, active, daysLeft: active ? Math.ceil(ms / DAY_MS) : 0, endsAt, planSlug: slug };
+}
+
+/**
+ * Modules this org can use right now: plan modules, plus the preview plan's
+ * modules while the preview runs, then per-org overrides (an explicit admin
+ * "off" still wins). `locked` = modules the preview plan has that the org
+ * cannot use, i.e. what upgrading would add.
+ * @param {{org:object, plan:object|null, overrides?:object[], previewPlan?:object|null}} ctx
+ */
+function resolveModules(ctx, now = new Date()) {
+  const set = new Set((ctx.plan && ctx.plan.modules) || []);
+  const preview = previewState(ctx.org, ctx.plan, now);
+  const previewModules = (ctx.previewPlan && ctx.previewPlan.modules) || [];
+  if (preview.active) previewModules.forEach((m) => set.add(m));
+  for (const o of ctx.overrides || []) {
+    if (o.enabled) set.add(o.moduleKey); else set.delete(o.moduleKey);
+  }
+  const locked = preview.configured ? previewModules.filter((m) => !set.has(m)) : [];
+  return { modules: [...set], preview, locked };
+}
+
 // ─── Limit registry ──────────────────────────────────────────
 
 const LIMITS = {
@@ -86,7 +127,13 @@ async function loadOrgContext(orgId, { fresh = false } = {}) {
   const [org] = await db.select().from(schema.organisation).where(eq(schema.organisation.id, orgId));
   if (!org) return null;
   const [plan] = await db.select().from(schema.plan).where(eq(schema.plan.id, org.planId));
-  const value = { org, plan: plan || null };
+  const overrides = await db.select().from(schema.orgModuleOverride).where(eq(schema.orgModuleOverride.organisationId, orgId));
+  let previewPlan = null;
+  const previewSlug = plan && plan.limits && plan.limits.trial_preview_plan;
+  if (previewSlug && org.status === 'trialing') {
+    [previewPlan] = await db.select().from(schema.plan).where(eq(schema.plan.slug, previewSlug));
+  }
+  const value = { org, plan: plan || null, overrides, previewPlan: previewPlan || null };
   cache.set(orgId, { value, expires: Date.now() + CACHE_TTL_MS });
   return value;
 }
@@ -103,4 +150,4 @@ async function usageFor(orgId, ctx) {
   return out;
 }
 
-module.exports = { isUnlimited, checkLimit, trialState, writeBlock, LIMITS, loadOrgContext, clearCache, usageFor };
+module.exports = { isUnlimited, checkLimit, trialState, writeBlock, previewState, resolveModules, LIMITS, loadOrgContext, clearCache, usageFor };

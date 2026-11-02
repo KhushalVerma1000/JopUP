@@ -30,4 +30,22 @@ const selectionIdSchema = z.object({
   params: z.object({ id: z.string().uuid('Invalid ID') }),
 });
 
-module.exports = { listOrgsSchema, orgIdSchema, grantTrialSchema, addSelectionSchema, selectionIdSchema };
+const listRequestsSchema = z.object({
+  query: z.object({ status: z.enum(['pending', 'approved', 'declined', 'contacted', 'all']).default('pending') }),
+});
+
+const requestIdSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid request ID') }),
+  body: z.object({ note: z.string().trim().max(300).optional() }).default({}),
+});
+
+const approveRequestSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid request ID') }),
+  body: z.object({
+    days: z.coerce.number().int().min(7, 'At least 7 days').max(90, 'At most 90 days').default(30),
+    organisationId: z.string().uuid('Invalid workspace ID').optional(),
+    note: z.string().trim().max(300).optional(),
+  }).default({ days: 30 }),
+});
+
+module.exports = { listOrgsSchema, orgIdSchema, grantTrialSchema, addSelectionSchema, selectionIdSchema, listRequestsSchema, requestIdSchema, approveRequestSchema };

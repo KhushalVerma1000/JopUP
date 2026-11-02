@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { primaryRoleLabel } from '../lib/roles';
 import { Avatar, Sheet } from '@/components/common';
+import { PlanBanner } from './PlanBanner';
 import { cn } from '@/lib/utils';
 
 // Each role gets its own short nav (max 5 so it fits a phone tab bar).
@@ -15,7 +16,7 @@ const NAV_ITEMS = [
   // Platform staff
   { to: '/platform', label: 'Overview', icon: Gauge, end: true, visibleTo: (a) => a.isPlatform },
   { to: '/platform/organizations', label: 'Orgs', sideLabel: 'Organisations', icon: Building2, visibleTo: (a) => a.isPlatform },
-  { to: '/platform/trials', label: 'Trials', sideLabel: '90-day trials', icon: Gift, visibleTo: (a) => a.isPlatform },
+  { to: '/platform/trials', label: 'Trials', sideLabel: 'Trials & requests', icon: Gift, visibleTo: (a) => a.isPlatform },
   { to: '/platform/team', label: 'Team', sideLabel: 'Platform team', icon: ShieldCheck, visibleTo: (a) => a.isPlatformOwner },
   // Org admin
   { to: '/dashboard', label: 'Home', sideLabel: 'Dashboard', icon: LayoutDashboard, visibleTo: (a) => !a.isPlatform && a.isOrgAdmin },
@@ -106,6 +107,8 @@ export function AppLayout({ children, wide = false }) {
             <Avatar name={name} className="size-9" />
           </div>
         </header>
+
+        <PlanBanner />
 
         <main className={cn('mx-auto px-4 pb-28 pt-5 md:px-8 md:pb-10 md:pt-8', wide ? 'max-w-7xl' : 'max-w-5xl')}>{children}</main>
       </div>

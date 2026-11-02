@@ -1,4 +1,5 @@
 const { db, schema } = require('../../utils/db');
+const ent = require('../../utils/entitlements');
 const { eq, and, inArray } = require('drizzle-orm');
 const bcrypt = require('bcryptjs');
 const { NotFoundError, BadRequestError } = require('../../utils/errors');
@@ -174,31 +175,11 @@ class OrganizationService {
   }
 
   async getOrgModules(orgId) {
-    // Same db.query.*.findFirst crash as getOrganizationById above — see its
-    // docstring. Fixed the same way: plain select + a second query for plan.
-    const [org] = await db.select().from(schema.organisation).where(eq(schema.organisation.id, orgId));
-
-    if (!org) {
-      throw new NotFoundError('Organization not found');
-    }
-
-    const [plan] = await db.select().from(schema.plan).where(eq(schema.plan.id, org.planId));
-    const planModules = new Set(plan?.modules || []);
-    
-    const overrides = await db
-      .select()
-      .from(schema.orgModuleOverride)
-      .where(eq(schema.orgModuleOverride.organisationId, orgId));
-      
-    for (const override of overrides) {
-      if (override.enabled) {
-        planModules.add(override.moduleKey);
-      } else {
-        planModules.delete(override.moduleKey);
-      }
-    }
-    
-    return Array.from(planModules);
+    // Same resolution the module gate uses (plan + trial preview + overrides),
+    // so what the UI is told can never disagree with what the API enforces.
+    const ctx = await ent.loadOrgContext(orgId, { fresh: true });
+    if (!ctx) throw new NotFoundError('Organization not found');
+    return ent.resolveModules(ctx).modules;
   }
 }
 

@@ -144,6 +144,8 @@ export const plan = pgTable("plan", {
 
   status:            planStatusEnum("status").notNull().default("active"),
   isPublic:          boolean("is_public").notNull().default(true),
+  // false = no self-serve trial: the plan is requested by email and granted by a platform admin
+  selfServe:         boolean("self_serve").notNull().default(true),
   trialDays:         integer("trial_days").notNull().default(14),
   ...createdAt,
 });

@@ -14,12 +14,26 @@ async function getUsage(orgId) {
   const { org, plan } = ctx;
 
   const trial = ent.trialState(org);
+  const { modules, preview, locked } = ent.resolveModules(ctx);
   const block = ent.writeBlock(org);
   const [account] = await db.select().from(schema.creditAccount).where(eq(schema.creditAccount.organisationId, orgId));
 
   return {
     organisation: { id: org.id, name: org.name, status: org.status },
     plan: plan && { name: plan.name, slug: plan.slug, priceMonthly: plan.priceMonthly, creditsEnabled: plan.creditsEnabled },
+    // What this workspace can open right now, and what a trial preview adds or has taken away.
+    modules: {
+      enabled: modules,
+      locked,
+      preview: {
+        configured: preview.configured,
+        active: preview.active,
+        daysLeft: preview.daysLeft,
+        endsAt: preview.endsAt,
+        planSlug: preview.planSlug,
+        planName: ctx.previewPlan ? ctx.previewPlan.name : null,
+      },
+    },
     trial: { active: org.status === 'trialing' && !trial.ended, ended: trial.ended, endsAt: org.trialEndsAt, daysLeft: trial.daysLeft },
     readOnly: Boolean(block),
     readOnlyReason: block ? block.code : null,

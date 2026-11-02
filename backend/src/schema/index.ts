@@ -238,3 +238,4 @@ export { automationRule } from "./20-automation";
 // ── 21 · Usage counters (metered allowances) ──
 export { usageCounter } from "./21-usage";
 export { trialSelection } from "./22-trial-selection";
+export { trialRequest } from "./23-trial-request";

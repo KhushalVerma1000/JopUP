@@ -38,4 +38,15 @@ const signupLimiter = rateLimit({
   },
 });
 
-module.exports = { loginLimiter, registerLimiter, signupLimiter };
+const planRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: Number(process.env.PLAN_REQUEST_RATE_LIMIT_MAX) || 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: 'fail',
+    message: 'Too many requests from this address. Please try again later.',
+  },
+});
+
+module.exports = { loginLimiter, registerLimiter, signupLimiter, planRequestLimiter };

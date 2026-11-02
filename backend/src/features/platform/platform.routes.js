@@ -23,4 +23,10 @@ router.get('/trial-selections', controller.listSelections.bind(controller));
 router.post('/trial-selections', canWrite, validate(schema.addSelectionSchema), controller.addSelection.bind(controller));
 router.delete('/trial-selections/:id', canWrite, validate(schema.selectionIdSchema), controller.removeSelection.bind(controller));
 
+// Requests for an Enterprise trial (or a Pro upgrade) from the request form.
+router.get('/trial-requests', validate(schema.listRequestsSchema), controller.listRequests.bind(controller));
+router.post('/trial-requests/:id/approve', canWrite, validate(schema.approveRequestSchema), controller.approveRequest.bind(controller));
+router.post('/trial-requests/:id/decline', canWrite, validate(schema.requestIdSchema), controller.declineRequest.bind(controller));
+router.post('/trial-requests/:id/contacted', canWrite, validate(schema.requestIdSchema), controller.contactedRequest.bind(controller));
+
 module.exports = router;

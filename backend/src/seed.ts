@@ -168,6 +168,11 @@ const PLANS = [
       max_job_postings: 10,
       max_storage_mb: 1024,
       trial_resume_parses_per_month: 500,
+      // The taste (tunable here and in the plan row): 14 days of Pro modules from signup,
+      // then a locked preview; a small starting credit balance instead of the full allowance.
+      trial_credits: 50,
+      trial_preview_days: 14,
+      trial_preview_plan: "pro",
     },
     creditAllowance: 100,
     creditsEnabled: true,
@@ -231,9 +236,11 @@ const PLANS = [
       max_job_postings: -1,
       max_storage_mb: -1,
       trial_resume_parses_per_month: 500,
+      trial_credits: 200, // credits an approved Enterprise trial starts with
     },
     creditAllowance: 2000,
     creditsEnabled: true,
+    selfServe: false, // requested by email, granted by a platform admin
     trialDays: 30,
   },
 ];

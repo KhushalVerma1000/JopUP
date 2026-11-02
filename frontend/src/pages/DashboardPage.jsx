@@ -5,6 +5,7 @@ import { useFetch } from '../hooks/useFetch';
 import { AppLayout } from '../components/AppLayout';
 import { PageHeader, Section, StatusPill } from '@/components/common';
 import { Card } from '@/components/ui/card';
+import { usePlan } from '../hooks/usePlan';
 import { daysUntil, formatMoney } from '../lib/format';
 
 const TILES = [
@@ -19,6 +20,7 @@ const TILES = [
 export function DashboardPage() {
   const { user, roles } = useAuth();
   const org = useFetch('/api/v1/organizations/me');
+  const { preview } = usePlan();
   const users = useFetch('/api/v1/users');
   const clients = useFetch('/api/v1/clients');
 
@@ -50,6 +52,12 @@ export function DashboardPage() {
             You're on the {o.plan?.name} plan ({formatMoney(o.plan?.priceMonthly)}/mo after the trial). Online payment is coming soon — we'll
             contact you before your trial ends.
           </p>
+          {preview?.active && (
+            <p className="text-sm">
+              <strong>{preview.planName || 'Pro'} preview:</strong> {preview.daysLeft} day{preview.daysLeft === 1 ? '' : 's'} left of KPIs, goals, reviews and strategy.{' '}
+              <Link to="/upgrade" className="font-medium text-primary underline-offset-4 hover:underline">Keep {preview.planName || 'Pro'}</Link>
+            </p>
+          )}
         </Card>
       )}
 

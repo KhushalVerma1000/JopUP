@@ -17,6 +17,7 @@ const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 const EXEMPT_PREFIXES = [
   '/api/v1/auth', '/api/v1/plans', '/api/v1/portal', '/api/v1/platform',
   '/api/v1/platform-admins', '/api/v1/billing', '/api/v1/credits',
+  '/api/v1/trial-requests', // an expired-trial user must still be able to ask for a plan
   '/api/v1/invitations/accept',
 ];
 
