@@ -1,7 +1,10 @@
 const { sql } = require('drizzle-orm');
 const { db, schema } = require('../../utils/db');
-const { eq } = require('drizzle-orm');
-const { NotFoundError } = require('../../utils/errors');
+const { eq, and, isNull, desc } = require('drizzle-orm');
+const { NotFoundError, BadRequestError, ConflictError } = require('../../utils/errors');
+const trialRules = require('../../utils/trial');
+const { auditWrite } = require('../../utils/audit');
+const ent = require('../../utils/entitlements');
 
 // The internal org that holds platform_owner / platform_admin identities
 // (see scripts/provision-owner.ts). It is not a customer tenant, so it is
@@ -112,7 +115,7 @@ class PlatformService {
       SELECT count(*) AS total FROM organisation o JOIN plan p ON p.id = o.plan_id WHERE ${where}`));
 
     const list = rows(await db.execute(sql`
-      SELECT o.id, o.name, o.slug, o.status, o.created_at, o.trial_ends_at, o.default_country,
+      SELECT o.id, o.name, o.slug, o.status, o.created_at, o.trial_ends_at, o.trial_tier, o.default_country,
              p.name AS plan_name, p.slug AS plan_slug,
              (SELECT count(*) FROM "user" u WHERE u.organisation_id = o.id AND u.status = 'active')   AS users,
              (SELECT count(*) FROM team t WHERE t.organisation_id = o.id)                              AS teams,
@@ -129,7 +132,7 @@ class PlatformService {
       total: num(total),
       organisations: list.map((r) => ({
         id: r.id, name: r.name, slug: r.slug, status: r.status, createdAt: r.created_at,
-        trialEndsAt: r.trial_ends_at, defaultCountry: r.default_country,
+        trialEndsAt: r.trial_ends_at, trialTier: r.trial_tier, defaultCountry: r.default_country,
         plan: { name: r.plan_name, slug: r.plan_slug },
         counts: { users: num(r.users), teams: num(r.teams), candidates: num(r.candidates), clients: num(r.clients) },
         lastActiveAt: r.last_active_at,
@@ -182,7 +185,8 @@ class PlatformService {
     return {
       organisation: {
         id: org.id, name: org.name, slug: org.slug, domain: org.domain, status: org.status,
-        timezone: org.timezone, defaultCountry: org.defaultCountry, trialEndsAt: org.trialEndsAt, createdAt: org.createdAt,
+        timezone: org.timezone, defaultCountry: org.defaultCountry, trialEndsAt: org.trialEndsAt, trialTier: org.trialTier,
+        trialExtendedAt: org.trialExtendedAt, createdAt: org.createdAt,
       },
       plan: plan && { name: plan.name, slug: plan.slug, priceMonthly: plan.priceMonthly, modules: plan.modules, limits },
       subscription: sub ? {
@@ -198,6 +202,83 @@ class PlatformService {
       admins: admins.map((a) => ({ id: a.id, email: a.email, name: `${a.first_name} ${a.last_name}`, status: a.status, lastLoginAt: a.last_login_at })),
       teams: teams.map((t) => ({ id: t.id, name: t.name, members: num(t.members) })),
     };
+  }
+
+  // ─── Trial tiers ──────────────────────────────────────────
+
+  async _trialingOrg(id) {
+    const [org] = await db.select().from(schema.organisation).where(eq(schema.organisation.id, id));
+    if (!org || org.slug === PLATFORM_ORG_SLUG) throw new NotFoundError('Organization not found');
+    if (org.status !== 'trialing') throw new BadRequestError('Only a workspace that is on a trial can change trial length.');
+    return org;
+  }
+
+  async _setTrialEnd(org, endsAt, patch, actorId, action) {
+    await db.transaction(async (tx) => {
+      await tx.update(schema.organisation)
+        .set({ trialEndsAt: endsAt, ...patch, updatedAt: new Date() })
+        .where(eq(schema.organisation.id, org.id));
+      await tx.update(schema.subscription)
+        .set({ trialEndsAt: endsAt, currentPeriodEnd: endsAt })
+        .where(and(eq(schema.subscription.organisationId, org.id), eq(schema.subscription.status, 'trialing')));
+    });
+    ent.clearCache(org.id); // write guard reads trial_ends_at through a 10 s cache
+    await auditWrite(org.id, actorId, 'update', 'organisation', org.id,
+      { trialTier: org.trialTier, trialEndsAt: org.trialEndsAt },
+      { trialTier: patch.trialTier, trialEndsAt: endsAt, action }, 'platform');
+    return this.getOrganisationDetail(org.id);
+  }
+
+  /** Give a selected company the 90-day trial. `from` = 'signup' (default) or 'today'. */
+  async grantExtendedTrial(id, from, actorId) {
+    const org = await this._trialingOrg(id);
+    if (org.trialTier === 'extended' && from !== 'today') throw new ConflictError('This company already has the 90-day trial.');
+    const endsAt = trialRules.extendedEnd(org.createdAt, from);
+    if (endsAt <= new Date()) {
+      throw new BadRequestError('90 days from signup has already passed. Choose "90 days from today" instead.');
+    }
+    return this._setTrialEnd(org, endsAt,
+      { trialTier: 'extended', trialExtendedBy: actorId, trialExtendedAt: new Date() }, actorId, 'grant_extended_trial');
+  }
+
+  /** Back to the standard 30-day trial, counted from signup (may end it immediately). */
+  async revokeExtendedTrial(id, actorId) {
+    const org = await this._trialingOrg(id);
+    if (org.trialTier !== 'extended') throw new ConflictError('This company is already on the 30-day trial.');
+    return this._setTrialEnd(org, trialRules.standardEnd(org.createdAt),
+      { trialTier: 'standard', trialExtendedBy: null, trialExtendedAt: null }, actorId, 'revoke_extended_trial');
+  }
+
+  // ─── Pre-selected companies (90-day trial at signup) ──────
+
+  async listTrialSelections() {
+    const list = rows(await db.execute(sql`
+      SELECT s.id, s.match, s.note, s.created_at, s.claimed_at, s.claimed_org_id, o.name AS org_name
+      FROM trial_selection s LEFT JOIN organisation o ON o.id = s.claimed_org_id
+      ORDER BY s.created_at DESC LIMIT 200`));
+    return list.map((r) => ({
+      id: r.id, match: r.match, note: r.note, createdAt: r.created_at,
+      claimedAt: r.claimed_at, claimedOrg: r.claimed_org_id ? { id: r.claimed_org_id, name: r.org_name } : null,
+    }));
+  }
+
+  async addTrialSelection(raw, note, actorId, tenantId) {
+    const n = trialRules.normalizeSelection(raw);
+    if (!n.ok) throw new BadRequestError(n.error);
+    const [existing] = await db.select().from(schema.trialSelection).where(eq(schema.trialSelection.match, n.match));
+    if (existing) throw new ConflictError(`${n.match} is already on the list.`);
+    const [row] = await db.insert(schema.trialSelection)
+      .values({ match: n.match, note: note || null, createdBy: actorId }).returning();
+    await auditWrite(tenantId, actorId, 'create', 'trial_selection', row.id, null, { match: n.match }, 'platform');
+    return { id: row.id, match: row.match, note: row.note, createdAt: row.createdAt, claimedAt: null, claimedOrg: null };
+  }
+
+  /** Only unclaimed rows can be removed; a claimed row is the record of who got the trial. */
+  async removeTrialSelection(id, actorId, tenantId) {
+    const gone = await db.delete(schema.trialSelection)
+      .where(and(eq(schema.trialSelection.id, id), isNull(schema.trialSelection.claimedAt))).returning();
+    if (!gone.length) throw new NotFoundError('Selection not found, or already used by a signup.');
+    await auditWrite(tenantId, actorId, 'delete', 'trial_selection', id, { match: gone[0].match }, null, 'platform');
   }
 }
 

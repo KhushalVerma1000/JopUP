@@ -33,7 +33,7 @@ function toPublicUser(user) {
   return out;
 }
 
-const TRIAL_FALLBACK_DAYS = 90;
+const trialRules = require('../../utils/trial');
 
 function slugify(text) {
   return String(text)
@@ -174,6 +174,15 @@ class AuthService {
     return `${base}-${Date.now().toString(36)}`;
   }
 
+  /** First unclaimed pre-selection matching this email: exact address wins over domain. */
+  async _findTrialSelection(email) {
+    const keys = trialRules.matchKeys(email);
+    if (!keys.length) return null;
+    const rows = await db.select().from(schema.trialSelection)
+      .where(and(inArray(schema.trialSelection.match, keys), isNull(schema.trialSelection.claimedAt)));
+    return rows.find((r) => r.match === keys[0]) || rows[0] || null;
+  }
+
   /**
    * Self-serve signup. One transaction creates: organisation (trialing),
    * credit account, a default "General" team, the first org_admin (active),
@@ -197,11 +206,28 @@ class AuthService {
 
     const slug = await this._uniqueSlug(slugify(data.companyName));
     const passwordHash = await bcrypt.hash(data.password, 10);
-    const trialDays = plan.trialDays || TRIAL_FALLBACK_DAYS;
-    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+    // Trial length is decided here, never by the request or the plan row:
+    // 30 days, or 90 if a platform admin pre-selected this email / domain.
+    const candidateSelection = await this._findTrialSelection(data.email);
     const now = new Date();
+    let trialTier = 'standard';
+    let trialEndsAt = new Date(now.getTime() + trialRules.STANDARD_TRIAL_DAYS * 86400000);
 
-    const { org, admin, sub } = await db.transaction(async (tx) => {
+    const { org, admin, sub, selection } = await db.transaction(async (tx) => {
+      // Claim the selection first and atomically: when two signups race for the
+      // same row only one UPDATE matches, so only one gets the 90-day trial.
+      let selection = null;
+      if (candidateSelection) {
+        const won = await tx.update(schema.trialSelection)
+          .set({ claimedAt: now })
+          .where(and(eq(schema.trialSelection.id, candidateSelection.id), isNull(schema.trialSelection.claimedAt)))
+          .returning();
+        selection = won[0] || null;
+      }
+      const t = trialRules.trialFor(selection);
+      trialTier = t.tier;
+      trialEndsAt = new Date(now.getTime() + t.days * 86400000);
+
       const [org] = await tx
         .insert(schema.organisation)
         .values({
@@ -210,6 +236,9 @@ class AuthService {
           slug,
           status: 'trialing',
           trialEndsAt,
+          trialTier,
+          trialExtendedAt: selection ? now : null,
+          trialExtendedBy: selection ? selection.createdBy : null,
           timezone: data.timezone || 'UTC',
           defaultCountry: data.defaultCountry ? data.defaultCountry.toUpperCase() : null,
         })
@@ -265,16 +294,21 @@ class AuthService {
         })
         .returning();
 
-      return { org, admin, sub };
+      if (selection) {
+        await tx.update(schema.trialSelection)
+          .set({ claimedOrgId: org.id })
+          .where(eq(schema.trialSelection.id, selection.id));
+      }
+      return { org, admin, sub, selection };
     });
 
     await auditWrite(org.id, admin.id, 'create', 'organisation', org.id, null,
-      { name: org.name, slug: org.slug, plan: plan.slug, via: 'self_signup' }, 'auth');
+      { name: org.name, slug: org.slug, plan: plan.slug, via: 'self_signup', trialTier, selectionId: selection ? selection.id : null }, 'auth');
 
     const session = await this._completeLogin(admin);
     return {
       ...session,
-      organisation: { id: org.id, name: org.name, slug: org.slug, status: org.status, trialEndsAt },
+      organisation: { id: org.id, name: org.name, slug: org.slug, status: org.status, trialEndsAt, trialTier, trialDays: Math.round((trialEndsAt - now) / 86400000) },
       subscription: { id: sub.id, status: sub.status, plan: { slug: plan.slug, name: plan.name }, trialEndsAt },
     };
   }

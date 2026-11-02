@@ -57,6 +57,13 @@
       "when": 1793026327050,
       "tag": "0008_usage_counter",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0009_trial_tiers",
+      "breakpoints": true
     }
   ]
 }

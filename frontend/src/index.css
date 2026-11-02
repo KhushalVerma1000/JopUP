@@ -89,6 +89,7 @@
 
 @layer base {
   html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+  a, button, input, select, textarea, [role="radio"] { touch-action: manipulation; }
   body { overscroll-behavior-y: none; }
   /* Never let a wide table/card blow the page sideways on a phone. */
   #root { overflow-x: clip; }

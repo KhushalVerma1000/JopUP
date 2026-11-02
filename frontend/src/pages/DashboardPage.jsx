@@ -42,7 +42,7 @@ export function DashboardPage() {
         <Card className="mb-6 gap-2 border-primary/30 bg-accent/40 p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="font-semibold">
-              Free trial{trialDays !== null && <> · {trialDays <= 0 ? 'ends today' : `${trialDays} day${trialDays === 1 ? '' : 's'} left`}</>}
+              {o.trialTier === 'extended' ? '90-day free trial' : 'Free trial'}{trialDays !== null && <> · {trialDays <= 0 ? 'ends today' : `${trialDays} day${trialDays === 1 ? '' : 's'} left`}</>}
             </div>
             <StatusPill status="trialing">{o.plan?.name}</StatusPill>
           </div>

@@ -19,6 +19,7 @@ import { PlatformOverview } from './pages/platform/PlatformOverview';
 import { PlatformOrganizations } from './pages/platform/PlatformOrganizations';
 import { PlatformOrgDetail } from './pages/platform/PlatformOrgDetail';
 import { PlatformTeam } from './pages/platform/PlatformTeam';
+import { PlatformTrials } from './pages/platform/PlatformTrials';
 
 // Who may open which area. Kept next to the routes so it's obvious at a glance.
 const tenantStaff = (a) => !a.isPlatform;
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/platform" element={guard(<PlatformOverview />, platformOnly)} />
           <Route path="/platform/organizations" element={guard(<PlatformOrganizations />, platformOnly)} />
           <Route path="/platform/organizations/:id" element={guard(<PlatformOrgDetail />, platformOnly)} />
+          <Route path="/platform/trials" element={guard(<PlatformTrials />, platformOnly)} />
           <Route path="/platform/team" element={guard(<PlatformTeam />, platformOwnerOnly)} />
 
           {/* Tenant workbenches */}

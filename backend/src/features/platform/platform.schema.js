@@ -14,4 +14,20 @@ const orgIdSchema = z.object({
   params: z.object({ id: z.string().uuid('Invalid organisation ID') }),
 });
 
-module.exports = { listOrgsSchema, orgIdSchema };
+const grantTrialSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid organisation ID') }),
+  body: z.object({ from: z.enum(['signup', 'today']).default('signup') }).default({ from: 'signup' }),
+});
+
+const addSelectionSchema = z.object({
+  body: z.object({
+    match: z.string().trim().min(3, 'Enter an email or a company domain').max(200),
+    note: z.string().trim().max(200).optional(),
+  }),
+});
+
+const selectionIdSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid ID') }),
+});
+
+module.exports = { listOrgsSchema, orgIdSchema, grantTrialSchema, addSelectionSchema, selectionIdSchema };

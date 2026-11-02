@@ -171,7 +171,7 @@ const PLANS = [
     },
     creditAllowance: 100,
     creditsEnabled: true,
-    trialDays: 90,
+    trialDays: 30,
   },
   {
     name: "Pro",
@@ -201,7 +201,7 @@ const PLANS = [
     },
     creditAllowance: 500,
     creditsEnabled: true,
-    trialDays: 90,
+    trialDays: 30,
   },
   {
     name: "Enterprise",
@@ -234,7 +234,7 @@ const PLANS = [
     },
     creditAllowance: 2000,
     creditsEnabled: true,
-    trialDays: 90,
+    trialDays: 30,
   },
 ];
 

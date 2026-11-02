@@ -33,6 +33,20 @@ export function PlatformOrgDetail() {
     }
   }
 
+  async function changeTrial(method, from, confirmText) {
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiFetch(`/api/v1/platform/organizations/${id}/extended-trial`, { method, body: method === 'POST' ? { from } : undefined });
+      await reload();
+    } catch (err) {
+      setActionError(errorMessage(err, 'Could not change the trial.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <AppLayout wide>
       <Link to="/platform/organizations" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -58,6 +72,14 @@ export function PlatformOrgDetail() {
               ) : (
                 <Button variant="outline" disabled={busy} onClick={() => setStatus('suspended', `Suspend ${o.name}? Everyone in this workspace will be blocked from signing in.`)}>Suspend</Button>
               )}
+              {o.status === 'trialing' && (o.trialTier === 'extended' ? (
+                <>
+                  <Button variant="outline" disabled={busy} onClick={() => changeTrial('POST', 'today')}>Restart 90 days from today</Button>
+                  <Button variant="outline" disabled={busy} onClick={() => changeTrial('DELETE', null, `Move ${o.name} back to the 30-day trial? If 30 days from signup has passed, the workspace becomes read-only straight away.`)}>Back to 30-day trial</Button>
+                </>
+              ) : (
+                <Button disabled={busy} onClick={() => changeTrial('POST', 'signup')}>Grant 90-day trial</Button>
+              ))}
             </div>
 
             <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -76,6 +98,7 @@ export function PlatformOrgDetail() {
                   </div>
                   <dl className="grid grid-cols-2 gap-y-2 text-sm">
                     <dt className="text-muted-foreground">Subscription</dt><dd className="text-right capitalize">{sub?.status || '—'}</dd>
+                    {o.status === 'trialing' && (<><dt className="text-muted-foreground">Trial length</dt><dd className="text-right">{o.trialTier === 'extended' ? '90 days (selected)' : '30 days'}</dd></>)}
                     {trialDays !== null && (<><dt className="text-muted-foreground">Trial ends</dt><dd className="text-right">{trialDays <= 0 ? 'today' : `in ${trialDays} days`}</dd></>)}
                     <dt className="text-muted-foreground">Payment method</dt><dd className="text-right">{sub?.paymentProvider || 'Not connected'}</dd>
                     <dt className="text-muted-foreground">Credits</dt><dd className="text-right tabular-nums">{credits?.balance ?? '—'}</dd>

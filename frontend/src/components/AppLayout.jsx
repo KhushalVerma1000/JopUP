@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu, Mail,
+  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu, Mail, Gift,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { primaryRoleLabel } from '../lib/roles';
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   // Platform staff
   { to: '/platform', label: 'Overview', icon: Gauge, end: true, visibleTo: (a) => a.isPlatform },
   { to: '/platform/organizations', label: 'Orgs', sideLabel: 'Organisations', icon: Building2, visibleTo: (a) => a.isPlatform },
+  { to: '/platform/trials', label: 'Trials', sideLabel: '90-day trials', icon: Gift, visibleTo: (a) => a.isPlatform },
   { to: '/platform/team', label: 'Team', sideLabel: 'Platform team', icon: ShieldCheck, visibleTo: (a) => a.isPlatformOwner },
   // Org admin
   { to: '/dashboard', label: 'Home', sideLabel: 'Dashboard', icon: LayoutDashboard, visibleTo: (a) => !a.isPlatform && a.isOrgAdmin },

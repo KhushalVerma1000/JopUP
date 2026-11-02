@@ -85,6 +85,11 @@ export const organisation = pgTable("organisation", {
   logoUrl:      text("logo_url"),
   status:       orgStatusEnum("status").notNull().default("trialing"),
   trialEndsAt:  timestamp("trial_ends_at", { withTimezone: true }),
+  // 'standard' = 30-day self-serve trial; 'extended' = 90-day trial a platform
+  // admin granted to a selected company. Only platform routes may set it.
+  trialTier:        text("trial_tier").notNull().default("standard"),
+  trialExtendedBy:  uuid("trial_extended_by"),
+  trialExtendedAt:  timestamp("trial_extended_at", { withTimezone: true }),
   timezone:     text("timezone").default("UTC"),
   // ISO 3166-1 alpha-2 (e.g. "IN", "US", "GB"). Not a hard default to "IN" —
   // this platform is used globally, so this is set explicitly at org
