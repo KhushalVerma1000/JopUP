@@ -239,3 +239,4 @@ export { automationRule } from "./20-automation";
 export { usageCounter } from "./21-usage";
 export { trialSelection } from "./22-trial-selection";
 export { trialRequest } from "./23-trial-request";
+export { importBatchStatusEnum, importRowStatusEnum, importBatch, importRow } from "./24-data-import";

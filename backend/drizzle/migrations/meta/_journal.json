@@ -71,6 +71,13 @@
       "when": 1793250000000,
       "tag": "0011_plan_tiers",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0012_data_import",
+      "breakpoints": true
     }
   ]
 }
