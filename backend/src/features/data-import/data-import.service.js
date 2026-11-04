@@ -7,6 +7,7 @@ const { NotFoundError, ForbiddenError, BadRequestError, AppError } = require('..
 const { readWorkbook } = require('./reader');
 const { analyseWorkbook } = require('./analyse');
 const { buildPlan } = require('./match');
+const combine = require('./combine');
 
 const PREVIEW_ROWS = 25;
 const BATCH_DAYS = 7;           // staged rows hold personal data: keep them a week, then purge
@@ -29,6 +30,8 @@ async function analyseFile(file, orgId, opts = {}) {
   const result = analyseWorkbook(sheets, { ...opts, defaultCountry });
   return {
     fileName: file.originalname,
+    fileHash: combine.sha256(file.buffer),
+    size: file.buffer.length,
     truncated,
     defaultCountry,
     totals: result.totals,
@@ -170,37 +173,94 @@ async function present(batch, extra = {}) {
     limits: batch.status === 'previewed' ? await limitsFor(batch.organisationId, batch.summary) : null, ...extra };
 }
 
+/** Name the file in the message, so with ten files HR knows which one to fix. */
+const inFile = (err, name) => (err instanceof BadRequestError ? new BadRequestError(`${name}: ${err.message}`) : err);
+
+/** Which of these files were already imported (a finished batch holds their hashes). */
+async function findPreviousImports(orgId, hashes) {
+  const list = sql.join(hashes.map((h) => sql`${h}`), sql`, `);
+  const batches = await db.select({ id: schema.importBatch.id, createdAt: schema.importBatch.createdAt, fileHash: schema.importBatch.fileHash, options: schema.importBatch.options })
+    .from(schema.importBatch)
+    .where(and(eq(schema.importBatch.organisationId, orgId), eq(schema.importBatch.status, 'done'), or(
+      inArray(schema.importBatch.fileHash, hashes),
+      sql`exists (select 1 from jsonb_array_elements(coalesce(${schema.importBatch.options}->'files', '[]'::jsonb)) f where f->>'hash' in (${list}))`)));
+  const byHash = new Map();
+  for (const b of batches) {
+    const seen = new Set([b.fileHash, ...(((b.options || {}).files) || []).map((f) => f.hash)]);
+    for (const h of hashes) if (seen.has(h) && !byHash.has(h)) byHash.set(h, { id: b.id, createdAt: b.createdAt });
+  }
+  return byHash;
+}
+
 /**
- * Analyse + match + stage. The file is read once; what is stored is the normalised
- * plan (never the original file). Re-uploading replaces nothing: each preview is its own batch.
+ * Analyse + match + stage. Each file is read once; what is stored is the normalised
+ * plan (never the original files). One or more files become ONE batch, so a person who
+ * appears in two files is one candidate, and one undo covers everything.
+ * `input` is a single multer file or an array of them. Re-uploading replaces nothing:
+ * each preview is its own batch.
  */
-async function createPreview(user, orgId, file, { teamId, ...opts }) {
+async function createPreview(user, orgId, input, { teamId, ...opts }) {
+  const files = [].concat(input).filter(Boolean);
+  if (!files.length) throw new BadRequestError('Attach at least one spreadsheet');
+  if (files.length > combine.MAX_FILES) throw new BadRequestError(`Import up to ${combine.MAX_FILES} files at a time.`);
+  const totalBytes = files.reduce((a, f) => a + f.buffer.length, 0);
+  if (totalBytes > combine.MAX_TOTAL_BYTES) throw new BadRequestError(`The files add up to more than ${combine.MAX_TOTAL_BYTES / 1024 / 1024} MB. Import them in two goes.`);
+
   if (!canActOnTeam(user, teamId, 'candidates', 'write')) throw new ForbiddenError("You can't import candidates into that team");
   const [team] = await db.select({ id: schema.team.id }).from(schema.team).where(and(eq(schema.team.id, teamId), eq(schema.team.organisationId, orgId)));
   if (!team) throw new NotFoundError('Team not found');
 
-  const { sheets, truncated } = await readWorkbook(file.buffer, file.originalname);
   const defaultCountry = opts.defaultCountry || await orgDefaultCountry(orgId);
-  const analysis = analyseWorkbook(sheets, { ...opts, defaultCountry });
-  if (!analysis.totals.rows) throw new BadRequestError('No candidate rows were found in this file. Check that it has a heading row such as Name, Phone, Client.');
 
-  const catalog = await loadCatalog(user, orgId, teamId, analysis.sheets);
-  const built = buildPlan({ sheets: analysis.sheets, catalog, decisions: {}, opts: { now: new Date() } });
-  const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
-  const [previous] = await db.select({ id: schema.importBatch.id, createdAt: schema.importBatch.createdAt }).from(schema.importBatch)
-    .where(and(eq(schema.importBatch.organisationId, orgId), eq(schema.importBatch.fileHash, fileHash), eq(schema.importBatch.status, 'done')));
+  // read every file; the same file twice counts once
+  const infos = []; const analysed = []; let truncated = false;
+  const firstByHash = new Map();
+  for (const file of files) {
+    const hash = combine.sha256(file.buffer);
+    const info = { name: file.originalname, hash, size: file.buffer.length };
+    infos.push(info);
+    if (firstByHash.has(hash)) { Object.assign(info, { status: 'duplicate', duplicateOf: firstByHash.get(hash), rows: 0, sheets: 0 }); continue; }
+    firstByHash.set(hash, file.originalname);
+    let read;
+    try { read = await readWorkbook(file.buffer, file.originalname); } catch (e) { throw inFile(e, file.originalname); }
+    const analysis = analyseWorkbook(read.sheets, { ...opts, defaultCountry });
+    truncated = truncated || read.truncated;
+    Object.assign(info, { status: analysis.totals.rows ? 'read' : 'empty', rows: analysis.totals.rows, sheets: analysis.sheets.length });
+    if (analysis.totals.rows) analysed.push({ info, sheets: analysis.sheets });
+  }
+  if (!analysed.length) {
+    throw new BadRequestError(files.length > 1
+      ? 'No candidate rows were found in any of these files. Check that each has a heading row such as Name, Phone, Client.'
+      : 'No candidate rows were found in this file. Check that it has a heading row such as Name, Phone, Client.');
+  }
+
+  const multi = analysed.length > 1;
+  const labels = combine.labelFiles(analysed.map((a) => a.info.name));
+  const sheets = analysed.flatMap((a, i) => (multi ? combine.qualifySheets(a.sheets, labels[i]) : a.sheets));
+  analysed.forEach((a, i) => { a.info.label = multi ? labels[i] : null; });
+
+  const catalog = await loadCatalog(user, orgId, teamId, sheets);
+  const built = buildPlan({ sheets, catalog, decisions: {}, opts: { now: new Date() } });
+
+  const used = infos.filter((i) => i.status === 'read');
+  const fileHash = combine.combinedHash(used.map((i) => i.hash));
+  const previous = await findPreviousImports(orgId, used.map((i) => i.hash));
+  const filesOut = infos.map((i) => ({ ...i, previouslyImported: previous.get(i.hash) || null }));
 
   const expiresAt = new Date(Date.now() + BATCH_DAYS * 86400000);
   const batch = await db.transaction(async (tx) => {
     const [b] = await tx.insert(schema.importBatch).values({
-      organisationId: orgId, teamId, createdBy: user.userId, fileName: file.originalname, fileHash, status: 'previewed',
-      options: { defaultCountry, dateOrder: opts.dateOrder || null, statusOverrides: opts.statusOverrides || {}, mappingOverrides: opts.mappingOverrides || {}, truncated, sheets: analysis.sheets.map(compactSheet), workflowTemplateId: catalog.workflowTemplateId },
+      organisationId: orgId, teamId, createdBy: user.userId, fileName: combine.batchFileName(used.map((i) => i.name)), fileHash, status: 'previewed',
+      options: { defaultCountry, dateOrder: opts.dateOrder || null, statusOverrides: opts.statusOverrides || {}, mappingOverrides: opts.mappingOverrides || {}, truncated,
+        files: infos.map(({ name, hash, size, status, rows, sheets: n, label }) => ({ name, hash, size, status, rows, sheets: n, label: label || null })),
+        sheets: sheets.map(compactSheet), workflowTemplateId: catalog.workflowTemplateId },
       entities: built.entities, summary: built.summary, expiresAt,
     }).returning();
-    await insertRows(tx, rowsForInsert(b.id, built, analysis.sheets));
+    await insertRows(tx, rowsForInsert(b.id, built, sheets));
     return b;
   });
-  return present(batch, { previouslyImported: previous || null, preview: built.rows.slice(0, PREVIEW_ROWS) });
+  const firstPrevious = used.map((i) => previous.get(i.hash)).find(Boolean) || null;
+  return present(batch, { previouslyImported: firstPrevious, files: filesOut, preview: built.rows.slice(0, PREVIEW_ROWS) });
 }
 
 async function getBatch(user, orgId, id) { return present(await loadBatch(user, orgId, id)); }

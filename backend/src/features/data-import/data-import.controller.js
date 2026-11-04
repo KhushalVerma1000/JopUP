@@ -28,13 +28,15 @@ class DataImportController {
 
   // Step 2: the same analysis, plus matching against what the team already has. Staged, not committed.
   async preview(req, res) {
-    if (!req.file) throw new BadRequestError('Attach a spreadsheet in the "file" field');
+    const uploaded = req.files || {};
+    const files = [...(uploaded.files || []), ...(uploaded.file || [])];
+    if (!files.length) throw new BadRequestError('Attach at least one spreadsheet in the "files" field');
     const body = req.body || {};
     if (!/^[0-9a-f-]{36}$/i.test(body.teamId || '')) throw new BadRequestError('teamId is required: the team these candidates are being imported into');
     const defaultCountry = body.defaultCountry;
     if (defaultCountry !== undefined && !/^[A-Za-z]{2}$/.test(defaultCountry)) throw new BadRequestError('defaultCountry must be a 2-letter ISO code (e.g. "IN")');
     if (body.dateOrder !== undefined && !['dmy', 'mdy'].includes(body.dateOrder)) throw new BadRequestError('dateOrder must be "dmy" or "mdy"');
-    const data = await service.createPreview(req.user, req.tenantId, req.file, {
+    const data = await service.createPreview(req.user, req.tenantId, files, {
       teamId: body.teamId,
       defaultCountry: defaultCountry ? defaultCountry.toUpperCase() : undefined,
       dateOrder: body.dateOrder,

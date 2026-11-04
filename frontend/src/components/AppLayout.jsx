@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu, Mail, Gift,
+  LayoutDashboard, Users, Building2, Settings, Briefcase, Gauge, ShieldCheck, LogOut, ClipboardList, BarChart3, Target, Menu, Mail, Gift, FileUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { primaryRoleLabel } from '../lib/roles';
@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { to: '/analytics', label: 'Analytics', icon: BarChart3, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
   { to: '/performance', label: 'Performance', icon: Target, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isHr || a.isManager || a.isOrgAdmin) },
   { to: '/clients', label: 'Clients', icon: Building2, visibleTo: (a) => !a.isPlatform },
+  { to: '/import', label: 'Import', sideLabel: 'Import data', icon: FileUp, tabBar: false, visibleTo: (a) => !a.isPlatform && (a.isManager || a.isOrgAdmin) },
   { to: '/employees', label: 'People', sideLabel: 'Employees', icon: Users, visibleTo: (a) => !a.isPlatform && (a.isManager || a.isOrgAdmin) },
   { to: '/managerial', label: 'Settings', icon: Settings, visibleTo: (a) => !a.isPlatform && a.isOrgAdmin },
 ];

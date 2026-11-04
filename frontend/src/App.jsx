@@ -16,6 +16,7 @@ import { ManagerPage } from './pages/ManagerPage';
 import { HrPage } from './pages/HrPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { PerformancePage } from './pages/PerformancePage';
+import { ImportPage } from './pages/ImportPage';
 import { PlatformOverview } from './pages/platform/PlatformOverview';
 import { PlatformOrganizations } from './pages/platform/PlatformOrganizations';
 import { PlatformOrgDetail } from './pages/platform/PlatformOrgDetail';
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/email-tracker" element={guard(<EmailTrackerPage />, pipelineArea)} />
           <Route path="/hr/email-tracker" element={<Navigate to="/email-tracker?from=hr" replace />} />
           <Route path="/clients/:id" element={guard(<ClientProfilePage />, tenantStaff)} />
+          <Route path="/import" element={guard(<ImportPage />, managerArea)} />
           <Route path="/employees" element={guard(<EmployeesPage />, managerArea)} />
           <Route path="/managerial" element={guard(<ManagerialPage />, managerArea)} />
 
