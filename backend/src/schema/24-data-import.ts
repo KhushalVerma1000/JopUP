@@ -52,6 +52,15 @@ export const importBatch = pgTable("import_batch", {
   /** The matched entities (clients, locations, positions, recruiters). */
   entities:       jsonb("entities").notNull().default(sql`'{}'::jsonb`),
   summary:        jsonb("summary").notNull().default(sql`'{}'::jsonb`),
+  /** What HR chose at commit time (e.g. lineups already mailed to the client). */
+  commitOptions:  jsonb("commit_options").notNull().default(sql`'{}'::jsonb`),
+  /** What the commit created or reused, by entity key: the undo ledger. */
+  ledger:         jsonb("ledger").notNull().default(sql`'{}'::jsonb`),
+  /** Final counts once finished; what an undo removed or had to keep. */
+  result:         jsonb("result").notNull().default(sql`'{}'::jsonb`),
+  startedAt:      timestamp("started_at", { withTimezone: true }),
+  finishedAt:     timestamp("finished_at", { withTimezone: true }),
+  undoneAt:       timestamp("undone_at", { withTimezone: true }),
   expiresAt:      timestamp("expires_at", { withTimezone: true }).notNull(),
   ...timestamps,
 }, (t) => [

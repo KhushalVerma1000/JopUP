@@ -177,7 +177,7 @@ function buildPlan({ sheets, catalog, decisions = {}, opts = {} }) {
 
   // ── positions ─────────────────────────────────────────────────────────────
   const positions = new Map();
-  const livePositions = catalog.positions.filter((p) => ['open', 'on_hold'].includes(p.status));
+  const livePositions = catalog.positions.filter((p) => p.status === 'open');
   flat.forEach((f) => {
     const t = f.rec.tracker;
     if (!t || !t.designation || !f.client) return;

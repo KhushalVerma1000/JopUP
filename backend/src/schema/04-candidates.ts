@@ -48,6 +48,7 @@ export const candidateSourceEnum = pgEnum("candidate_source", [
   "agency",
   "linkedin",
   "other",
+  "import",   // created by a spreadsheet import (source_ref = the batch); added last because Postgres appends enum values
 ]);
 
 export const candidateStatusEnum = pgEnum("candidate_status", [

@@ -78,6 +78,13 @@
       "when": 1793300000000,
       "tag": "0012_data_import",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0013_data_import_commit",
+      "breakpoints": true
     }
   ]
 }

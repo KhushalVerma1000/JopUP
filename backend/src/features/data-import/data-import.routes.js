@@ -30,6 +30,10 @@ router.post('/preview', requirePermission('candidates', 'write'), handleUpload, 
 router.get('/batches/:id', requirePermission('candidates', 'write'), validate(schema.batchParamsSchema), controller.get.bind(controller));
 router.get('/batches/:id/rows', requirePermission('candidates', 'write'), validate(schema.rowsSchema), controller.rows.bind(controller));
 router.patch('/batches/:id/decisions', requirePermission('candidates', 'write'), validate(schema.decisionsSchema), controller.decide.bind(controller));
+// Step 3: writing needs tracker access as well as candidate access (checked again per team in the service).
+router.post('/batches/:id/commit', requirePermission('candidates', 'write'), requirePermission('trackers', 'write'), validate(schema.commitSchema), controller.commitStart.bind(controller));
+router.post('/batches/:id/commit/next', requirePermission('candidates', 'write'), requirePermission('trackers', 'write'), validate(schema.batchParamsSchema), controller.commitNext.bind(controller));
+router.post('/batches/:id/undo', requirePermission('candidates', 'write'), requirePermission('trackers', 'write'), validate(schema.batchParamsSchema), controller.undo.bind(controller));
 router.delete('/batches/:id', requirePermission('candidates', 'write'), validate(schema.batchParamsSchema), controller.discard.bind(controller));
 
 module.exports = router;

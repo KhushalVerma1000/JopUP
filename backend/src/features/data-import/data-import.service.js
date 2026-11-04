@@ -57,8 +57,8 @@ async function loadCatalog(user, orgId, teamId, sheets) {
 
   const locations = clientIds.length ? await db.select({ id: schema.clientLocation.id, clientId: schema.clientLocation.clientId, name: schema.clientLocation.name, aliases: schema.clientLocation.aliases })
     .from(schema.clientLocation).where(and(eq(schema.clientLocation.organisationId, orgId), inArray(schema.clientLocation.clientId, clientIds))) : [];
-  const positions = clientIds.length ? await db.select({ id: schema.openPosition.id, clientId: schema.openPosition.clientId, designation: schema.openPosition.designation, location: schema.openPosition.location, status: schema.openPosition.status })
-    .from(schema.openPosition).where(and(eq(schema.openPosition.organisationId, orgId), inArray(schema.openPosition.clientId, clientIds))) : [];
+  const positions = clientIds.length ? await db.select({ id: schema.openPosition.id, teamId: schema.openPosition.teamId, clientId: schema.openPosition.clientId, designation: schema.openPosition.designation, location: schema.openPosition.location, status: schema.openPosition.status })
+    .from(schema.openPosition).where(and(eq(schema.openPosition.organisationId, orgId), eq(schema.openPosition.teamId, teamId), eq(schema.openPosition.status, 'open'), inArray(schema.openPosition.clientId, clientIds))) : [];
   const users = await db.select({ id: schema.user.id, firstName: schema.user.firstName, lastName: schema.user.lastName, email: schema.user.email })
     .from(schema.user).where(and(eq(schema.user.organisationId, orgId), eq(schema.user.status, 'active')));
 
@@ -153,9 +153,21 @@ async function loadBatch(user, orgId, id) {
   return batch;
 }
 
+async function progressOf(batchId) {
+  const rows = await db.select({ status: schema.importRow.status, n: sql`count(*)::int` }).from(schema.importRow)
+    .where(eq(schema.importRow.batchId, batchId)).groupBy(schema.importRow.status);
+  const by = Object.fromEntries(rows.map((r) => [r.status, r.n]));
+  const total = rows.reduce((a, r) => a + r.n, 0);
+  const processed = total - (by.pending || 0);
+  return { total, processed, pending: by.pending || 0, done: by.done || 0, skipped: by.skipped || 0, failed: by.failed || 0 };
+}
+
 async function present(batch, extra = {}) {
   return { id: batch.id, fileName: batch.fileName, status: batch.status, teamId: batch.teamId, expiresAt: batch.expiresAt, createdAt: batch.createdAt,
-    options: batch.options, decisions: batch.decisions, summary: batch.summary, entities: batch.entities, limits: await limitsFor(batch.organisationId, batch.summary), ...extra };
+    options: batch.options, decisions: batch.decisions, summary: batch.summary, entities: batch.entities, commitOptions: batch.commitOptions, result: batch.result,
+    startedAt: batch.startedAt, finishedAt: batch.finishedAt, undoneAt: batch.undoneAt,
+    progress: batch.status === 'previewed' ? null : await progressOf(batch.id),
+    limits: batch.status === 'previewed' ? await limitsFor(batch.organisationId, batch.summary) : null, ...extra };
 }
 
 /**
@@ -257,4 +269,4 @@ async function purgeExpired(now = new Date()) {
   return gone.length;
 }
 
-module.exports = { analyseFile, createPreview, getBatch, listRows, applyDecisions, discardBatch, purgeExpired, mergeDecisions, loadCatalog, PREVIEW_ROWS, BATCH_DAYS };
+module.exports = { loadBatch, present, progressOf, chunk, analyseFile, createPreview, getBatch, listRows, applyDecisions, discardBatch, purgeExpired, mergeDecisions, loadCatalog, PREVIEW_ROWS, BATCH_DAYS };

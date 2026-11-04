@@ -25,4 +25,15 @@ const rowsSchema = z.object({
   }),
 });
 
-module.exports = { batchParamsSchema, decisionsSchema, rowsSchema };
+const commitSchema = z.object({
+  params: z.object({ id: uuid }),
+  body: z.object({
+    skipBlocked: z.boolean().optional(),
+    options: z.object({
+      alreadyMailed: z.boolean().optional(),          // lineups from today on were already mailed to the client
+      useJobLocationForMail: z.boolean().optional(),  // new candidates with no location take the job location (default true)
+    }).strict().optional(),
+  }).strict(),
+});
+
+module.exports = { batchParamsSchema, decisionsSchema, rowsSchema, commitSchema };

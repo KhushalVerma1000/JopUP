@@ -1,4 +1,5 @@
 const service = require('./data-import.service');
+const commit = require('./commit.service');
 const { BadRequestError } = require('../../utils/errors');
 
 const parseJson = (raw, label) => {
@@ -54,6 +55,19 @@ class DataImportController {
 
   async decide(req, res) {
     res.json({ status: 'success', data: await service.applyDecisions(req.user, req.tenantId, req.params.id, req.body) });
+  }
+
+  // Step 3: write it. start once, then call next until progress.pending is 0.
+  async commitStart(req, res) {
+    res.json({ status: 'success', data: await commit.startCommit(req.user, req.tenantId, req.params.id, req.body) });
+  }
+
+  async commitNext(req, res) {
+    res.json({ status: 'success', data: await commit.commitNext(req.user, req.tenantId, req.params.id) });
+  }
+
+  async undo(req, res) {
+    res.json({ status: 'success', data: await commit.undoBatch(req.user, req.tenantId, req.params.id) });
   }
 
   async discard(req, res) {
