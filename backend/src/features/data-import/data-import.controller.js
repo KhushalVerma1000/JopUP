@@ -2,6 +2,27 @@ const service = require('./data-import.service');
 const commit = require('./commit.service');
 const { BadRequestError } = require('../../utils/errors');
 
+const CLIENT_MODES = ['none', 'sheet', 'name', 'auto'];
+/** clientMode / clientName for one file (analyse). */
+const clientAsk = (body) => {
+  if (body.clientMode === undefined) return {};
+  if (!CLIENT_MODES.includes(body.clientMode)) throw new BadRequestError('clientMode must be none, sheet, name or auto');
+  const name = body.clientName === undefined ? undefined : String(body.clientName).trim().slice(0, 120);
+  return { clientMode: body.clientMode, clientName: name };
+};
+/** { "<file name>": { mode, name } } for several files (preview). Anything unreadable is a clear error, not a silent skip. */
+const fileClientsFrom = (raw) => {
+  const v = parseJson(raw, 'fileClients');
+  if (v === undefined) return undefined;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequestError('fileClients must be an object keyed by file name');
+  const out = {};
+  for (const [file, a] of Object.entries(v)) {
+    if (!a || !CLIENT_MODES.includes(a.mode)) throw new BadRequestError(`fileClients: "${file}" needs a mode of none, sheet, name or auto`);
+    out[file] = { mode: a.mode, name: a.name === undefined || a.name === null ? undefined : String(a.name).trim().slice(0, 120) };
+  }
+  return out;
+};
+
 const parseJson = (raw, label) => {
   if (raw === undefined || raw === '') return undefined;
   try { return JSON.parse(raw); } catch { throw new BadRequestError(`${label} must be valid JSON`); }
@@ -22,6 +43,7 @@ class DataImportController {
       dateOrder,
       statusOverrides: parseJson(body.statusOverrides, 'statusOverrides'),
       mappingOverrides: parseJson(body.mappingOverrides, 'mappingOverrides'),
+      ...clientAsk(body),
     });
     res.json({ status: 'success', data });
   }
@@ -42,6 +64,7 @@ class DataImportController {
       dateOrder: body.dateOrder,
       statusOverrides: parseJson(body.statusOverrides, 'statusOverrides'),
       mappingOverrides: parseJson(body.mappingOverrides, 'mappingOverrides'),
+      fileClients: fileClientsFrom(body.fileClients),
     });
     res.status(201).json({ status: 'success', data });
   }

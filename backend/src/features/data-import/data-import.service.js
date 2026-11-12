@@ -8,6 +8,7 @@ const { readWorkbook } = require('./reader');
 const { analyseWorkbook } = require('./analyse');
 const { buildPlan } = require('./match');
 const combine = require('./combine');
+const trackersService = require('../trackers/trackers.service');
 
 const PREVIEW_ROWS = 25;
 const BATCH_DAYS = 7;           // staged rows hold personal data: keep them a week, then purge
@@ -27,7 +28,7 @@ async function orgDefaultCountry(orgId) {
 async function analyseFile(file, orgId, opts = {}) {
   const { sheets, truncated } = await readWorkbook(file.buffer, file.originalname);
   const defaultCountry = opts.defaultCountry || await orgDefaultCountry(orgId);
-  const result = analyseWorkbook(sheets, { ...opts, defaultCountry });
+  const result = analyseWorkbook(sheets, { ...opts, defaultCountry, fileName: file.originalname });
   return {
     fileName: file.originalname,
     fileHash: combine.sha256(file.buffer),
@@ -35,6 +36,7 @@ async function analyseFile(file, orgId, opts = {}) {
     truncated,
     defaultCountry,
     totals: result.totals,
+    client: result.client,
     sheets: result.sheets.map(({ records, ...s }) => ({
       ...s,
       preview: records.slice(0, PREVIEW_ROWS),
@@ -93,10 +95,10 @@ async function loadCatalog(user, orgId, teamId, sheets) {
     .from(schema.candidateTracker).where(and(inArray(schema.candidateTracker.candidateId, seeable.map((c) => c.id)),
       inArray(schema.candidateTracker.status, ['active', 'on_hold']), sql`${schema.candidateTracker.openPositionId} is not null`)) : [];
 
-  // the destination team's own pipeline decides which stages exist
-  const [tpl] = await db.select().from(schema.workflowTemplate)
-    .where(and(eq(schema.workflowTemplate.teamId, teamId), eq(schema.workflowTemplate.isDefault, true)));
-  if (!tpl) throw new BadRequestError('This team has no default workflow yet, so there are no stages to import into. Set one up first.');
+  // the destination team's own pipeline decides which stages exist. A team that has none yet gets the standard
+  // one, exactly as creating its first tracker would (HR never has to set up a workflow first).
+  const tplId = await trackersService.resolveWorkflowTemplateId(orgId, teamId, user.userId);
+  const tpl = { id: tplId };
   const stages = await db.select({ stageKey: schema.workflowStage.stageKey, name: schema.workflowStage.name, orderIndex: schema.workflowStage.orderIndex })
     .from(schema.workflowStage).where(eq(schema.workflowStage.workflowTemplateId, tpl.id)).orderBy(asc(schema.workflowStage.orderIndex));
 
@@ -156,8 +158,8 @@ async function loadBatch(user, orgId, id) {
   return batch;
 }
 
-async function progressOf(batchId) {
-  const rows = await db.select({ status: schema.importRow.status, n: sql`count(*)::int` }).from(schema.importRow)
+async function progressOf(batchId, executor = db) {
+  const rows = await executor.select({ status: schema.importRow.status, n: sql`count(*)::int` }).from(schema.importRow)
     .where(eq(schema.importRow.batchId, batchId)).groupBy(schema.importRow.status);
   const by = Object.fromEntries(rows.map((r) => [r.status, r.n]));
   const total = rows.reduce((a, r) => a + r.n, 0);
@@ -223,7 +225,9 @@ async function createPreview(user, orgId, input, { teamId, ...opts }) {
     firstByHash.set(hash, file.originalname);
     let read;
     try { read = await readWorkbook(file.buffer, file.originalname); } catch (e) { throw inFile(e, file.originalname); }
-    const analysis = analyseWorkbook(read.sheets, { ...opts, defaultCountry });
+    const ask = (opts.fileClients && opts.fileClients[file.originalname]) || {};
+    const analysis = analyseWorkbook(read.sheets, { ...opts, defaultCountry, fileName: file.originalname, clientMode: ask.mode, clientName: ask.name });
+    info.client = { mode: analysis.client.mode, name: analysis.client.name, needed: analysis.client.needed };
     truncated = truncated || read.truncated;
     Object.assign(info, { status: analysis.totals.rows ? 'read' : 'empty', rows: analysis.totals.rows, sheets: analysis.sheets.length });
     if (analysis.totals.rows) analysed.push({ info, sheets: analysis.sheets });
@@ -252,7 +256,7 @@ async function createPreview(user, orgId, input, { teamId, ...opts }) {
     const [b] = await tx.insert(schema.importBatch).values({
       organisationId: orgId, teamId, createdBy: user.userId, fileName: combine.batchFileName(used.map((i) => i.name)), fileHash, status: 'previewed',
       options: { defaultCountry, dateOrder: opts.dateOrder || null, statusOverrides: opts.statusOverrides || {}, mappingOverrides: opts.mappingOverrides || {}, truncated,
-        files: infos.map(({ name, hash, size, status, rows, sheets: n, label }) => ({ name, hash, size, status, rows, sheets: n, label: label || null })),
+        files: infos.map(({ name, hash, size, status, rows, sheets: n, label, client }) => ({ name, hash, size, status, rows, sheets: n, label: label || null, client: client || null })),
         sheets: sheets.map(compactSheet), workflowTemplateId: catalog.workflowTemplateId },
       entities: built.entities, summary: built.summary, expiresAt,
     }).returning();

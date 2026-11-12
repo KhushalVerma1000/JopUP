@@ -9,6 +9,7 @@
  *
  * Off with PERFORMANCE_SCHEDULER=off. Never started by the test suite (only server.js starts it).
  */
+const { describeError } = require('../../utils/describeError');
 const metrics = require('./metrics.service');
 
 const TICK_MS = Math.max(1, Number(process.env.PERFORMANCE_SYNC_MINUTES) || 60) * 60 * 1000;
@@ -19,7 +20,7 @@ async function safeTick() {
   if (busy) return;
   busy = true;
   try { await metrics.syncAll(new Date()); }
-  catch (err) { console.error(`[performance-sync] tick failed: ${err.message}`); }
+  catch (err) { console.error(`[performance-sync] tick failed: ${describeError(err)}`); }
   finally { busy = false; }
 }
 

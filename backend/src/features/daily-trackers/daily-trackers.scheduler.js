@@ -6,6 +6,7 @@
  * Off with DAILY_TRACKER_SCHEDULER=off (e.g. on web-only instances if you split
  * workers later). Never started by the test suite (only server.js starts it).
  */
+const { describeError } = require('../../utils/describeError');
 const service = require('./daily-trackers.service');
 
 const TICK_MS = 60 * 1000;
@@ -16,7 +17,7 @@ async function safeTick() {
   if (busy) return;                      // previous tick still sending: don't overlap
   busy = true;
   try { await service.tick(new Date()); }
-  catch (err) { console.error(`[daily-tracker] tick failed: ${err.message}`); }
+  catch (err) { console.error(`[daily-tracker] tick failed: ${describeError(err)}`); }
   finally { busy = false; }
 }
 

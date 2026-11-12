@@ -4,9 +4,10 @@ import { ErrorNote, Notice, Section } from '@/components/common';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
-  ACCEPT, FIELD_OPTIONS, MAX_FILES, MAX_FILE_BYTES, STATUS_CHOICES, fieldLabel, fileStatus, formatBytes, normHeader, plural, totalsOf, unknownStatuses,
+  ACCEPT, FIELD_OPTIONS, MAX_FILES, MAX_FILE_BYTES, STATUS_CHOICES, clientNote, clientSheetLabel, fieldLabel, fileStatus, formatBytes, normHeader, plural, totalsOf, unknownStatuses,
 } from '@/lib/dataImport';
 
 const STATE = {
@@ -34,7 +35,7 @@ function ColumnTable({ sheet, mappingAnswers, onMap }) {
             const chosen = mappingAnswers[key];
             return (
               <tr key={c.index} className="border-b last:border-0">
-                <td className="py-1.5 pr-3">{c.label}</td>
+                <td className="py-1.5 pr-3">{c.label}{c.note && <span className="block text-xs text-amber-700 dark:text-amber-300">{c.note}</span>}</td>
                 <td className="max-w-[10rem] truncate py-1.5 pr-3 text-muted-foreground">{(c.sample || [])[0] || ''}</td>
                 <td className="py-1.5 pr-3">
                   <NativeSelect aria-label={`Where "${c.label}" goes`} value={chosen || ''} onChange={(e) => onMap(key, e.target.value)} className="min-w-[10rem]">
@@ -57,7 +58,37 @@ function ColumnTable({ sheet, mappingAnswers, onMap }) {
   );
 }
 
-function FileRow({ entry, open, onToggle, onRemove, mappingAnswers, onMap }) {
+
+function ClientControl({ entry, onClient }) {
+  const c = entry.analysis && entry.analysis.client;
+  const [draft, setDraft] = useState(null);
+  if (!c || !c.needed) return null;
+  const typed = draft === null ? (c.mode === 'name' ? c.name : (c.suggestion && c.suggestion.name) || '') : draft;
+  const apply = (mode, name) => { setDraft(null); onClient(entry.file.name, { mode, name }); };
+  return (
+    <div className="mt-2 rounded-lg border bg-muted/30 p-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="text-xs font-medium" htmlFor={`client-${entry.id}`}>Client for this file</label>
+        <NativeSelect id={`client-${entry.id}`} className="min-w-[14rem] sm:w-auto" value={c.mode}
+          onChange={(e) => apply(e.target.value, e.target.value === 'name' ? typed : undefined)}>
+          <option value="sheet">{clientSheetLabel(c)}</option>
+          <option value="name">One client for the whole file</option>
+          <option value="none">No client</option>
+        </NativeSelect>
+        {c.mode === 'name' && (
+          <Input aria-label="Client name" className="h-9 w-56" value={typed} maxLength={120}
+            onChange={(e) => setDraft(e.target.value)} onBlur={() => { if (draft !== null && draft.trim() && draft.trim() !== c.name) apply('name', draft.trim()); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+        )}
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {clientNote(c)}.{c.source === 'auto' && c.mode !== 'none' ? ' This is our guess from the tab or file names; change it if it is wrong.' : ''} You can match or rename clients on the next screen.
+      </p>
+    </div>
+  );
+}
+
+function FileRow({ entry, open, onToggle, onRemove, mappingAnswers, onMap, onClient }) {
   const st = fileStatus(entry.analysis);
   const meta = STATE[st.state];
   const usable = entry.analysis && !entry.analysis.error && !entry.analysis.duplicateOf;
@@ -80,6 +111,7 @@ function FileRow({ entry, open, onToggle, onRemove, mappingAnswers, onMap }) {
         )}
         <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${entry.file.name}`} onClick={onRemove}><X aria-hidden /></Button>
       </div>
+      {usable && <ClientControl entry={entry} onClient={onClient} />}
       {open && sheets.length > 0 && (
         <div className="mt-2 space-y-3 rounded-lg border bg-muted/30 p-3">
           {sheets.map((s) => (
@@ -95,7 +127,7 @@ function FileRow({ entry, open, onToggle, onRemove, mappingAnswers, onMap }) {
   );
 }
 
-export function FilesStep({ entries, rejected, teams, teamId, onTeam, dateOrder, onDateOrder, statusAnswers, onStatus, mappingAnswers, onMap, onAdd, onRemove, onContinue, busy, error }) {
+export function FilesStep({ entries, rejected, teams, teamId, onTeam, dateOrder, onDateOrder, statusAnswers, onStatus, mappingAnswers, onMap, onClient, onAdd, onRemove, onContinue, busy, error }) {
   const input = useRef(null);
   const [over, setOver] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -131,7 +163,7 @@ export function FilesStep({ entries, rejected, teams, teamId, onTeam, dateOrder,
           <ul className="divide-y rounded-xl border bg-card px-4">
             {entries.map((e) => (
               <FileRow key={e.id} entry={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)} onRemove={() => onRemove(e.id)}
-                mappingAnswers={mappingAnswers} onMap={onMap} />
+                mappingAnswers={mappingAnswers} onMap={onMap} onClient={onClient} />
             ))}
           </ul>
         </Section>

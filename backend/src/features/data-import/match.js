@@ -282,7 +282,7 @@ function buildPlan({ sheets, catalog, decisions = {}, opts = {} }) {
           action = 'skip'; skipReason = 'already_live'; add('warn', 'already_live', 'This person is already live for this position in your tracker');
         }
       }
-      plan.tracker = { action, skipReason, stageKey: stage.stageKey, status, reason: t.reason || null, historic, assignedHr: assigned, lineupDate: t.lineupDate, interviewDate: t.interviewDate, joiningDate: t.joiningDate, remarks: t.remarks };
+      plan.tracker = { action, skipReason, stageKey: stage.stageKey, status, reason: t.reason || null, historic, assignedHr: assigned, lineupDate: t.lineupDate, interviewDate: t.interviewDate, interviewTime: t.interviewTime || null, joiningDate: t.joiningDate, remarks: t.remarks };
       if (issues.some((i) => i.level === 'error') && plan.action === 'import') plan.action = 'blocked';
       if (plan.action === 'import') { if (action === 'create') { stats.create += 1; if (historic) stats.historic += 1; stats.stages[stage.stageKey] = (stats.stages[stage.stageKey] || 0) + 1; } else stats.trackerSkip += 1; }
     } else if (issues.some((i) => i.level === 'error') && plan.action === 'import') plan.action = 'blocked';

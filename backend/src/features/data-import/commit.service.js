@@ -137,6 +137,9 @@ async function findExistingCandidate(tx, orgId, c) {
   return hit || null;
 }
 
+/** The sheet's remarks, plus the interview time (the tracker keeps the day, so the time is not lost). */
+const trackerNotes = (t) => [t.remarks, t.interviewTime ? `Interview time ${t.interviewTime}` : null].filter(Boolean).join(' · ') || null;
+
 async function applyRow(tx, ctx, batch, row) {
   const { plan, data } = row;
   if (plan.action !== 'import') return { skipped: true, reason: plan.action };
@@ -212,7 +215,7 @@ async function applyRow(tx, ctx, batch, row) {
       dates: { lineup: t.lineupDate, interview: t.interviewDate, joining: t.joiningDate }, tz: ctx.tz, now: ctx.now, movedBy: batch.createdBy, note: `Imported from ${batch.fileName}` });
     const [tr] = await tx.insert(schema.candidateTracker).values({
       organisationId: orgId, teamId: batch.teamId, candidateId, openPositionId: positionId, workflowTemplateId: ctx.templateId,
-      assignedHr: t.assignedHr || batch.createdBy, status: built.status, notes: t.remarks || null,
+      assignedHr: t.assignedHr || batch.createdBy, status: built.status, notes: trackerNotes(t),
       lineupDate: t.lineupDate ? startOfLocalDay(t.lineupDate, ctx.tz) : null, interviewDate: t.interviewDate ? startOfLocalDay(t.interviewDate, ctx.tz) : null,
       createdAt: built.firstAt, updatedAt: built.lastAt,
     }).returning({ id: schema.candidateTracker.id });
@@ -253,7 +256,7 @@ async function finish(tx, batch, ctx) {
     }
   }
 
-  const prog = await base.progressOf(batch.id);
+  const prog = await base.progressOf(batch.id, tx); // inside the transaction, or the last chunk's rows are not visible yet
   const rows = await tx.select({ result: R.result }).from(R).where(and(eq(R.batchId, batch.id), eq(R.status, 'done'))).orderBy(asc(R.seq));
   const tally = { candidatesCreated: 0, candidatesReused: 0, trackersCreated: 0, trackersSkipped: 0, clientsCreated: 0, locationsCreated: 0, positionsCreated: 0, mailLogs: ledger.mailLogs.length, downgraded: 0 };
   const people = new Map(); // candidate id -> created by this import (any of their rows says so)
@@ -393,4 +396,4 @@ async function undoBatch(user, orgId, id) {
   return base.present(out, { undo: { removed, kept } });
 }
 
-module.exports = { startCommit, commitNext, undoBatch, CHUNK_ROWS, UNDO_DAYS };
+module.exports = { trackerNotes, startCommit, commitNext, undoBatch, CHUNK_ROWS, UNDO_DAYS };

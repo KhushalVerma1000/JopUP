@@ -88,9 +88,66 @@ function parseDate(value, { order = 'dmy', now = new Date() } = {}) {
   return { date: null, ambiguous: false };
 }
 
+
+/** Excel stores a bare time ("11:00 AM") as a date in 1899/1900. Those are times, not dates. */
+const isTimeOnlyDate = (v) => v instanceof Date && !Number.isNaN(v.getTime()) && v.getUTCFullYear() <= 1900;
+
+/**
+ * "11:00 AM", "11.30", "14:15", 0.4583 (Excel day fraction) or a time-only Excel date -> "HH:MM", else null.
+ */
+function parseTime(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const hm = (h, m) => (h >= 0 && h <= 23 && m >= 0 && m <= 59 ? `${pad(h)}:${pad(m)}` : null);
+  if (raw instanceof Date) return isTimeOnlyDate(raw) ? hm(raw.getUTCHours(), raw.getUTCMinutes()) : null;
+  if (typeof raw === 'number') {
+    if (raw > 0 && raw < 1) { const mins = Math.round(raw * 1440); return hm(Math.floor(mins / 60) % 24, mins % 60); }
+    return null;
+  }
+  const s = String(raw).trim().toLowerCase();
+  let m = s.match(/^(\d{1,2})\s*[:.]\s*(\d{2})(?:\s*[:.]\s*\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?$/);
+  if (!m) { m = s.match(/^(\d{1,2})()\s*(am|pm)$/); }
+  if (!m) return null;
+  let h = Number(m[1]); const mi = m[2] ? Number(m[2]) : 0; const ap = m[3] ? m[3][0] : null;
+  if (ap) { if (h < 1 || h > 12) return null; if (ap === 'p' && h < 12) h += 12; if (ap === 'a' && h === 12) h = 0; }
+  return hm(h, mi);
+}
+
+/** How many written-out dates (not real Excel dates) could be read two ways, 05/10/2026 for instance. */
+function countAmbiguousDates(values) {
+  let n = 0;
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const m = v.trim().match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})$/);
+    if (m && Number(m[1]) <= 12 && Number(m[2]) <= 12 && m[1] !== m[2]) n += 1;
+  }
+  return n;
+}
+
+/** Is this date within a believable window around today (6 years back, 2 ahead)? A 2002 interview is a typo. */
+function plausibleDate(ymd, now = new Date()) {
+  const y = Number(String(ymd).slice(0, 4)); const cy = now.getUTCFullYear();
+  return y >= cy - 6 && y <= cy + 2;
+}
+
+/** Digits and phone punctuation only: a Date, a sentence or a time is not a phone number. */
+function phoneLike(v) {
+  if (v === null || v === undefined || v instanceof Date) return false;
+  if (typeof v === 'number') { const n = Math.round(v); return n >= 1e7 && n < 1e15; }
+  const s = String(v).trim();
+  if (!/^[+\d][\d\s().\-/,;|+]*$/.test(s.replace(/\s+(or|and)\s+/gi, ' / '))) return false;
+  return /\d{8,}/.test(s.replace(/\D/g, ''));
+}
+
+/** "26K", "3.5 LPA", "2.16LPA", 24600, "Rs 25,000": something that is a salary figure. */
+function salaryLike(v) {
+  if (v === null || v === undefined || v instanceof Date) return false;
+  if (typeof v === 'number') return v > 0;
+  return /^(rs\.?|inr|₹)?\s*\d[\d,]*(\.\d+)?\s*(k|l|lpa|lac|lacs|lakh|lakhs|pa|per annum|\/-|per month|pm)?(\s*(ctc|p\.?a\.?))?$/i.test(String(v).trim());
+}
+
 /** Does this value look like a date at all (used to sniff unlabeled columns)? */
 function looksLikeDate(v) {
-  if (v instanceof Date) return true;
+  if (v instanceof Date) return !isTimeOnlyDate(v);
   if (typeof v === 'number') return false; // bare numbers are too ambiguous to sniff
   return parseDate(v).date !== null;
 }
@@ -156,6 +213,6 @@ function cleanEmail(raw) {
 }
 
 const isBlank = (v) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
-const text = (v) => (isBlank(v) ? null : (v instanceof Date ? iso(v.getUTCFullYear(), v.getUTCMonth() + 1, v.getUTCDate()) : String(v).replace(/\s+/g, ' ').trim()));
+const text = (v) => (isBlank(v) ? null : (v instanceof Date ? (isTimeOnlyDate(v) ? parseTime(v) : iso(v.getUTCFullYear(), v.getUTCMonth() + 1, v.getUTCDate())) : String(v).replace(/\s+/g, ' ').trim()));
 
-module.exports = { parseDate, detectDateOrder, looksLikeDate, splitName, parseExperience, parsePhoneCell, cleanEmail, isBlank, text, EMAIL_RE };
+module.exports = { parseDate, detectDateOrder, countAmbiguousDates, plausibleDate, parseTime, isTimeOnlyDate, phoneLike, salaryLike, looksLikeDate, splitName, parseExperience, parsePhoneCell, cleanEmail, isBlank, text, EMAIL_RE };

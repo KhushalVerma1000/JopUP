@@ -5,17 +5,19 @@
  * column's values fit the field (a "Contact" column full of names is not a
  * phone), and unlabeled columns are recognised from their values alone.
  */
-const { parsePhoneCell, cleanEmail, looksLikeDate, isBlank } = require('./normalize');
+const { parsePhoneCell, cleanEmail, looksLikeDate, isBlank, parseTime, phoneLike, salaryLike } = require('./normalize');
 const { interpretStatus } = require('./statusMap');
 
 // Order matters: more specific rules first. Each regex runs on the header
 // lower-cased with punctuation turned into single spaces.
 const RULES = [
+  ['interviewTime', /\b(interview|iv|walk ?in|slot) ?(time|timing|timings)\b|^(time|timing|slot time)$/, 1],
+  ['sourcingDate',  /\b(sourcing|sourced|source|received|applied|application|cv received|resume received) ?(date|dt|on)\b|\bdate (of )?(sourcing|application)\b/, 1],
   ['lineupDate',    /\b(line ?up|lined up|lu) ?(date|dt|on)\b|\bdate (of )?(line ?up|lu)\b|\bscheduled (date|for)\b/, 1],
   ['interviewDate', /\b(interview|iv|walk ?in) ?(date|dt|on|schedule)\b|\bdate (of )?(interview|walk ?in)\b|\binterview (day|slot)\b/, 1],
   ['joiningDate',   /\b(doj|joining date|date of joining|joined on|join date|joining dt)\b/, 1],
   ['altPhone',      /\b(alt|alternate|alternative|secondary|other|2nd|second|whatsapp) ?(contact|phone|mobile|number|no)\b/, 1],
-  ['phone',         /^(phone|mobile|contact|cell|tel|telephone|mob|ph)( ?(no|number|num|nos|details|detail))?$|\b(phone|mobile|contact|cell|mob) ?(no|number|num)\b|^whatsapp( no| number)?$/, 1],
+  ['phone',         /^(phone|mobile|contact|cell|tel|telephone|mob|ph)( ?(no|number|num|nos|details|detail))?$|\b(phone|mobile|contact|cell|mob) ?(no|number|num)\b|^whatsapp( no| number)?$|^number$/, 1],
   ['email',         /\be ?mail( ?(id|address|add))?\b|^mail$/, 1],
   ['clientLocation',/\b(job|work|posting|hiring|store|branch|outlet|site|process|plant) ?(location|city|place)\b|^(store|branch|outlet|site)( name)?$|\bposted (at|in)\b/, 0.95],
   ['location',      /\b(current|candidate|present|home|native|residence) ?(location|city|address|place)\b|^(location|city|place|loc|current loc)$/, 0.85],
@@ -60,9 +62,12 @@ const ratio = (values, fn) => {
 function contentFit(field, values, ctx = {}) {
   switch (field) {
     case 'phone': case 'altPhone':
-      return ratio(values, (v) => parsePhoneCell(v, ctx.defaultCountry).phone && /\d{8,}/.test(String(typeof v === 'number' ? Math.round(v) : v).replace(/\D/g, '')));
+      // a Date, a time or a sentence is not a phone number, even when its digits add up to eight
+      return ratio(values, (v) => phoneLike(v) && parsePhoneCell(v, ctx.defaultCountry).phone);
     case 'email': return ratio(values, (v) => cleanEmail(v).valid === true);
-    case 'lineupDate': case 'interviewDate': case 'joiningDate': case 'genericDate':
+    case 'interviewTime': return ratio(values, (v) => parseTime(v) !== null);
+    case 'currentCtc': case 'expectedCtc': return ratio(values, salaryLike);
+    case 'lineupDate': case 'interviewDate': case 'joiningDate': case 'genericDate': case 'sourcingDate':
       return ratio(values, (v) => looksLikeDate(v) || (typeof v === 'number' && v > 30000 && v < 70000));
     case 'status': return ratio(values, (v) => interpretStatus(String(v)).matched !== null);
     case 'experience': return ratio(values, (v) => /^\d|fresh/i.test(String(v)));
@@ -76,6 +81,7 @@ function contentFit(field, values, ctx = {}) {
 function sniffColumn(values, ctx) {
   const filled = values.filter((v) => !isBlank(v));
   if (filled.length < 3) return null;
+  if (contentFit('interviewTime', values) >= 0.8) return { field: 'interviewTime', score: 0.6 };
   if (contentFit('email', values) >= 0.7) return { field: 'email', score: 0.6 };
   if (contentFit('phone', values, ctx) >= 0.8) return { field: 'phone', score: 0.6 };
   if (contentFit('genericDate', values) >= 0.8) return { field: 'genericDate', score: 0.5 };

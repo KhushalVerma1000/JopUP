@@ -142,12 +142,33 @@ t('other people cannot see the batch, and cannot import into a team they have no
   assert.equal(wrong.status, 403);
 });
 
-t('a file with no candidate rows, a team with no id, and a team with no workflow are refused clearly', async () => {
+t('a file with no candidate rows, and a request with no team, are refused clearly', async () => {
   const wb = new ExcelJS.Workbook(); wb.addWorksheet('x').addRow(['hello world']);
   const empty = await preview('mgr', techTeam, Buffer.from(await wb.xlsx.writeBuffer()));
   assert.equal(empty.status, 400); assert.match(empty.body.message, /No candidate rows/);
   const noTeam = await request(app).post('/api/v1/data-import/preview').set('Authorization', `Bearer ${tokens.mgr}`).attach('file', await workbook(), 'lineups.xlsx');
   assert.equal(noTeam.status, 400);
+});
+
+t('a team with no workflow yet gets the standard pipeline on first use, like creating its first tracker would', async () => {
+  // a brand-new organisation's "General" team is in exactly this state, and used to be refused with "Set one up first"
+  const [old] = (await pool.query('select id from workflow_template where team_id=$1 and is_default', [techTeam])).rows;
+  await pool.query('update workflow_template set is_default=false where id=$1', [old.id]);
+  let made;
+  try {
+    const res = await preview('mgr', techTeam);
+    assert.equal(res.status, 201, JSON.stringify(res.body)); created.push(res.body.data.id);
+    made = (await pool.query('select id from workflow_template where team_id=$1 and is_default', [techTeam])).rows;
+    assert.equal(made.length, 1); assert.notEqual(made[0].id, old.id);
+    const stages = (await pool.query('select stage_key from workflow_stage where workflow_template_id=$1 order by order_index', [made[0].id])).rows.map((r) => r.stage_key);
+    assert.deepEqual(stages, ['applied', 'screening', 'lineup', 'turnup', 'interview', 'offer', 'joined']);
+    const batch = (await authed('mgr').get(`/data-import/batches/${res.body.data.id}`)).body.data;
+    assert.equal(batch.options.workflowTemplateId, made[0].id);
+  } finally {
+    await pool.query("delete from import_batch where team_id=$1 and options->>'workflowTemplateId' = any($2)", [techTeam, (made || []).map((m) => m.id)]);
+    for (const m of made || []) await pool.query('delete from workflow_template where id=$1', [m.id]);
+    await pool.query('update workflow_template set is_default=true where id=$1', [old.id]);
+  }
 });
 
 t('an expired batch is gone (410), and discarding removes the batch and its rows', async () => {

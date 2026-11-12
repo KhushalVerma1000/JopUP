@@ -13,7 +13,7 @@ export const FIELD_OPTIONS = [
   ['email', 'Email'], ['client', 'Client'], ['designation', 'Position'], ['clientLocation', 'Job location'], ['location', 'Candidate location'],
   ['lineupDate', 'Lineup date'], ['interviewDate', 'Interview date'], ['joiningDate', 'Joining date'], ['status', 'Status'], ['remarks', 'Remarks'],
   ['recruiter', 'Recruiter'], ['experience', 'Experience'], ['currentCtc', 'Current CTC'], ['expectedCtc', 'Expected CTC'], ['noticePeriod', 'Notice period'],
-  ['source', 'Source'], ['skills', 'Skills'], ['qualification', 'Qualification'], ['currentEmployer', 'Current employer'], ['resumeLink', 'Resume link'],
+  ['interviewTime', 'Interview time'], ['sourcingDate', 'Sourcing date'], ['source', 'Source'], ['skills', 'Skills'], ['qualification', 'Qualification'], ['currentEmployer', 'Current employer'], ['resumeLink', 'Resume link'],
 ];
 export const fieldLabel = (key) => (FIELD_OPTIONS.find(([k]) => k === key) || [])[1] || null;
 
@@ -58,6 +58,8 @@ export function screenFiles(picked, current = []) {
   return { accepted, rejected };
 }
 
+const noClientCount = (a) => (a.client && a.client.needed && a.client.mode === 'none' ? 1 : 0);
+
 /** Ready / check / skipped for one analysed file, plus the one-line reason shown under its name. */
 export function fileStatus(a) {
   if (!a) return { state: 'reading', note: 'Reading…' };
@@ -67,7 +69,7 @@ export function fileStatus(a) {
   if (!t.rows) return { state: 'skipped', note: 'No candidate rows found' };
   const usable = (a.sheets || []).filter((s) => s.kind !== 'unknown');
   const skippedTabs = (a.sheets || []).length - usable.length;
-  const toCheck = (a.sheets || []).reduce((n, s) => n + (s.columns || []).filter((c) => c.status === 'review').length, 0)
+  const toCheck = noClientCount(a) + (a.sheets || []).reduce((n, s) => n + (s.columns || []).filter((c) => c.status === 'review').length, 0)
     + (a.sheets || []).reduce((n, s) => n + (((s.summary || {}).unknownStatuses) || []).length, 0);
   const base = `${plural((a.sheets || []).length, 'tab')} · ${plural(t.rows, 'row')}`;
   if (toCheck) return { state: 'check', note: `${base} · ${plural(toCheck, 'thing')} to check` };
@@ -99,12 +101,43 @@ export const statusOverridesFrom = (answers) => Object.fromEntries(Object.entrie
   .map(([key, v]) => [key, (STATUS_CHOICES.find((c) => c.value === v) || {}).answer]).filter(([, a]) => a));
 export const mappingOverridesFrom = (answers) => Object.fromEntries(Object.entries(answers).filter(([, v]) => v));
 
+
+// ── which client the lineups belong to, when the sheet has no Client column ──
+// answers: { [file name]: { mode: 'sheet' | 'name' | 'none', name? } }. No answer means "use our suggestion" (mode auto).
+export const clientOptsFor = (answers, fileName) => {
+  const a = (answers || {})[fileName];
+  return a ? { clientMode: a.mode, clientName: a.mode === 'name' ? a.name : undefined } : { clientMode: 'auto' };
+};
+
+/** What the file will really use, as the server resolved it: { [file name]: { mode, name } } for the preview call. */
+export function fileClientsFrom(entries) {
+  const out = {};
+  for (const e of entries) {
+    const c = e.analysis && e.analysis.client;
+    out[e.file.name] = c && c.needed ? { mode: c.mode, name: c.name || undefined } : { mode: 'none' };
+  }
+  return out;
+}
+
+/** One line saying what the client choice does, shown under the file. */
+export function clientNote(c) {
+  if (!c || !c.needed) return null;
+  if (c.mode === 'sheet') return `Each tab is a client: ${listShort(c.sheetNames)}`;
+  if (c.mode === 'name') return `All lineups go to the client “${c.name}”`;
+  return 'No client: lineups will be imported without a client or open position';
+}
+const listShort = (names = [], n = 3) => `${names.slice(0, n).join(', ')}${names.length > n ? ` and ${names.length - n} more` : ''}`;
+export const clientSheetLabel = (c) => `Each tab is a client (${listShort((c && c.sheetNames) || [])})`;
+
 // ── API ─────────────────────────────────────────────────────────────────────
 function fields(form, o) {
   if (o.dateOrder) form.append('dateOrder', o.dateOrder);
   if (o.defaultCountry) form.append('defaultCountry', o.defaultCountry);
   if (o.statusOverrides && Object.keys(o.statusOverrides).length) form.append('statusOverrides', JSON.stringify(o.statusOverrides));
   if (o.mappingOverrides && Object.keys(o.mappingOverrides).length) form.append('mappingOverrides', JSON.stringify(o.mappingOverrides));
+  if (o.clientMode) form.append('clientMode', o.clientMode);
+  if (o.clientName) form.append('clientName', o.clientName);
+  if (o.fileClients && Object.keys(o.fileClients).length) form.append('fileClients', JSON.stringify(o.fileClients));
 }
 
 export async function analyseFile(file, o = {}) {

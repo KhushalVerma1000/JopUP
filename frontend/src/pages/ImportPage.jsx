@@ -7,7 +7,7 @@ import { ImportStep } from '../components/import/ImportStep';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, ApiError } from '../lib/api';
 import {
-  analyseFile, createPreview, decide, discardBatch, fetchLeftOut, mappingOverridesFrom, runCommit, screenFiles, skippedCsv, startCommit, statusOverridesFrom, undoBatch,
+  analyseFile, clientOptsFor, createPreview, decide, discardBatch, fetchLeftOut, fileClientsFrom, mappingOverridesFrom, runCommit, screenFiles, skippedCsv, startCommit, statusOverridesFrom, undoBatch,
 } from '../lib/dataImport';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +39,7 @@ export function ImportPage() {
   const [dateOrder, setDateOrder] = useState('');
   const [statusAnswers, setStatusAnswers] = useState({});
   const [mappingAnswers, setMappingAnswers] = useState({});
+  const [, setClientAnswers] = useState({});
   const [step, setStep] = useState(0);
   const [batch, setBatch] = useState(null);
   const [skipped, setSkipped] = useState({ rows: [], total: 0, complete: true });
@@ -50,7 +51,7 @@ export function ImportPage() {
   const [progress, setProgress] = useState(null);
   const [undone, setUndone] = useState(null);
   const [undoing, setUndoing] = useState(false);
-  const entriesRef = useRef([]); const run = useRef(0);
+  const entriesRef = useRef([]); const run = useRef(0); const clientRef = useRef({});
   useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   useEffect(() => {
@@ -74,7 +75,7 @@ export function ImportPage() {
       if (run.current !== mine) return;
       let analysis;
       try {
-        const a = await analyseFile(e.file, o);
+        const a = await analyseFile(e.file, { ...o, ...clientOptsFor(clientRef.current, e.file.name) });
         analysis = seen.has(a.fileHash) ? { duplicateOf: seen.get(a.fileHash) } : a;
         if (!seen.has(a.fileHash)) seen.set(a.fileHash, e.file.name);
       } catch (err) { analysis = { error: msg(err) }; }
@@ -96,6 +97,7 @@ export function ImportPage() {
   const onRemove = (id) => { const rest = entriesRef.current.filter((e) => e.id !== id); setEntries(rest); entriesRef.current = rest; analyseAll(rest, opts()); };
   const onDateOrder = (v) => { setDateOrder(v); reanalyse({ dateOrder: v }); };
   const onStatus = (key, v) => { const next = { ...statusAnswers, [key]: v }; setStatusAnswers(next); reanalyse({ statusAnswers: next }); };
+  const onClient = (fileName, answer) => { const next = { ...clientRef.current, [fileName]: answer }; clientRef.current = next; setClientAnswers(next); reanalyse(); };
   const onMap = (key, v) => { const next = { ...mappingAnswers }; if (v) next[key] = v; else delete next[key]; setMappingAnswers(next); reanalyse({ mappingAnswers: next }); };
 
   const loadSkipped = async (id) => { try { const r = await fetchLeftOut(id); setSkipped((s) => ({ ...s, rows: r.rows, total: r.total, complete: r.complete })); } catch { /* the list is a convenience */ } };
@@ -103,9 +105,10 @@ export function ImportPage() {
   const onContinue = async () => {
     setBusy(true); setError(null);
     try {
-      const use = entriesRef.current.filter((e) => e.analysis && !e.analysis.error && !e.analysis.duplicateOf && (e.analysis.totals || {}).rows).map((e) => e.file);
+      const usable = entriesRef.current.filter((e) => e.analysis && !e.analysis.error && !e.analysis.duplicateOf && (e.analysis.totals || {}).rows);
+      const use = usable.map((e) => e.file);
       if (batch) { try { await discardBatch(batch.id); } catch { /* it expires on its own */ } }
-      const b = await createPreview(use, teamId, opts());
+      const b = await createPreview(use, teamId, { ...opts(), fileClients: fileClientsFrom(usable) });
       setBatch(b); setChoices({ clients: {}, positions: {} }); setSkipBlocked(false); setAlreadyMailed(false);
       await loadSkipped(b.id); setStep(1);
     } catch (e) { setError(msg(e)); } finally { setBusy(false); }
@@ -149,7 +152,7 @@ export function ImportPage() {
   };
 
   const again = () => {
-    setEntries([]); entriesRef.current = []; setRejected([]); setStatusAnswers({}); setMappingAnswers({}); setBatch(null); setUndone(null); setProgress(null);
+    setEntries([]); entriesRef.current = []; setRejected([]); setStatusAnswers({}); setMappingAnswers({}); setClientAnswers({}); clientRef.current = {}; setBatch(null); setUndone(null); setProgress(null);
     setSkipped({ rows: [], total: 0, complete: true }); setError(null); setStep(0);
   };
 
@@ -162,7 +165,7 @@ export function ImportPage() {
           <>
             {step === 0 && (
               <FilesStep entries={entries} rejected={rejected} teams={teams} teamId={teamId} onTeam={setTeamId} dateOrder={dateOrder} onDateOrder={onDateOrder}
-                statusAnswers={statusAnswers} onStatus={onStatus} mappingAnswers={mappingAnswers} onMap={onMap} onAdd={onAdd} onRemove={onRemove}
+                statusAnswers={statusAnswers} onStatus={onStatus} mappingAnswers={mappingAnswers} onMap={onMap} onClient={onClient} onAdd={onAdd} onRemove={onRemove}
                 onContinue={onContinue} busy={busy} error={error} />
             )}
             {step === 1 && batch && (
