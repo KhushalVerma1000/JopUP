@@ -61,6 +61,12 @@ class TrackersController {
     res.json({ status: 'success', data: { log } });
   }
 
+  async outcome(req, res) {
+    await trackersService._assertTracker(req.tenantId, req.params.id, req.user);
+    const action = await trackersService.recordOutcome(req.tenantId, req.params.id, req.body, req.user?.userId);
+    res.json({ status: 'success', data: { action } });
+  }
+
   async block(req, res) {
     const orgId = req.tenantId;
     const userId = req.user?.userId;

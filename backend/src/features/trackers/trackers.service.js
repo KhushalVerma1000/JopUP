@@ -6,6 +6,7 @@ const { emitEvent } = require('../../utils/events');
 const { auditWrite } = require('../../utils/audit');
 const { normalizePhone } = require('../../utils/phone');
 const workflowService = require('../workflow/workflow.service');
+const { KIND, isReschedule, summariseActions, FIELD_LABEL } = require('./trackers.today');
 
 const LIVE_TAG_CONFLICT = 'This candidate is already tagged to that position';
 
@@ -42,7 +43,7 @@ class TrackersService {
     const candidateIds = [...new Set(rows.map((r) => r.candidateId).filter(Boolean))];
     const openPositionIds = [...new Set(rows.map((r) => r.openPositionId).filter(Boolean))];
 
-    const [currentLogs, candidateRows, positionRows] = await Promise.all([
+    const [currentLogs, candidateRows, positionRows, actionRows] = await Promise.all([
       db.select().from(schema.candidateTrackerStageLog).where(
         and(inArray(schema.candidateTrackerStageLog.trackerId, trackerIds), isNull(schema.candidateTrackerStageLog.exitedAt))
       ),
@@ -54,7 +55,17 @@ class TrackersService {
         ? db.select({ id: schema.openPosition.id, designation: schema.openPosition.designation, clientId: schema.openPosition.clientId, location: schema.openPosition.location })
             .from(schema.openPosition).where(inArray(schema.openPosition.id, openPositionIds))
         : [],
+      // Reschedules and outcomes (not coming / confirmed) HR logged from the Today view: for the
+      // "rescheduled 2x" tag, and to know which missed dates have already been dealt with.
+      db.select({ trackerId: schema.candidateTrackerStageLog.trackerId, performedAt: schema.candidateTrackerAction.performedAt, metadata: schema.candidateTrackerAction.metadata })
+        .from(schema.candidateTrackerAction)
+        .innerJoin(schema.candidateTrackerStageLog, eq(schema.candidateTrackerAction.stageLogId, schema.candidateTrackerStageLog.id))
+        .where(and(
+          inArray(schema.candidateTrackerStageLog.trackerId, trackerIds),
+          sql`${schema.candidateTrackerAction.metadata}->>'kind' in ('reschedule', 'not_coming', 'confirmed')`,
+        )),
     ]);
+    const outcomesByTracker = summariseActions(actionRows);
 
     const stageIds = [...new Set(currentLogs.map((l) => l.stageId).filter(Boolean))];
     const stageRows = stageIds.length
@@ -94,6 +105,10 @@ class TrackersService {
         currentStageEnteredAt: log ? log.enteredAt : null,
         // The status HR attached when moving the candidate here ("Reached"…).
         currentStageNote: log ? log.notes : null,
+        // For the Today view: how often a date moved, when HR last marked "not coming", and the day they last confirmed for.
+        rescheduleCount: outcomesByTracker.get(tracker.id)?.rescheduleCount || 0,
+        notComingAt: outcomesByTracker.get(tracker.id)?.notComingAt || null,
+        confirmedFor: outcomesByTracker.get(tracker.id)?.confirmedFor || null,
       };
     });
   }
@@ -352,6 +367,14 @@ class TrackersService {
 
     await auditWrite(orgId, userId, 'update', 'candidate_tracker', trackerId, before, updated, 'pipeline');
 
+    // A date that moves (not a first-time set) leaves a trail: it feeds the "rescheduled Nx" tag on the Today view.
+    for (const field of ['lineupDate', 'interviewDate']) {
+      if (data[field] !== undefined && isReschedule(before[field], updated[field])) {
+        try { await this._logRescheduleTx(db, trackerId, userId, field, before[field], updated[field]); }
+        catch (err) { console.error('[reschedule-log] could not record the move:', err.message); } // never block the date change itself
+      }
+    }
+
     // Setting a lineup / interview date can move the candidate forward (manager's automation rules).
     const automation = require('../automation/automation.service'); // lazy: automation calls back into this service
     let auto = null;
@@ -359,6 +382,53 @@ class TrackersService {
       if (data[field]) auto = (await automation.run(orgId, userId, 'date_set', field, [trackerId])) || auto;
     }
     return auto ? { ...updated, automation: auto } : updated;
+  }
+
+  /** One action row on the candidate's current stage. dbOrTx may be a transaction. No current stage = nothing to attach to, so skip. */
+  async _logRescheduleTx(dbOrTx, trackerId, userId, field, from, to) {
+    const [log] = await dbOrTx.select({ id: schema.candidateTrackerStageLog.id }).from(schema.candidateTrackerStageLog)
+      .where(and(eq(schema.candidateTrackerStageLog.trackerId, trackerId), isNull(schema.candidateTrackerStageLog.exitedAt))).limit(1);
+    if (!log) return;
+    await dbOrTx.insert(schema.candidateTrackerAction).values({
+      stageLogId: log.id,
+      performedBy: userId,
+      actionType: 'interview_scheduled',
+      content: `${FIELD_LABEL[field] || field} moved`,
+      metadata: { kind: KIND.RESCHEDULE, field, from: new Date(from).toISOString(), to: new Date(to).toISOString() },
+    });
+  }
+
+  /**
+   * HR's answer for a missed or upcoming date, from the Today view: "not coming" or "confirmed".
+   * The candidate stays where they are in the pipeline; this only records the answer, so a missed
+   * date stops showing under "Needs update" and tomorrow's list knows who already confirmed.
+   * forDate (YYYY-MM-DD, HR's own calendar day) says which day a confirmation is for.
+   */
+  async recordOutcome(orgId, trackerId, { outcome, field, forDate, note }, userId) {
+    return await db.transaction(async (tx) => {
+      const tracker = await this._lockTracker(tx, orgId, trackerId);
+      if (tracker.status !== 'active') {
+        throw new BadRequestError(`This candidate is ${String(tracker.status).replace('_', ' ')} — there is nothing to update`);
+      }
+      const log = await this._currentLogTx(tx, trackerId);
+      if (!log) throw new BadRequestError('Tracker is not currently in any active stage');
+
+      const [action] = await tx.insert(schema.candidateTrackerAction).values({
+        stageLogId: log.id,
+        performedBy: userId,
+        actionType: 'status_changed',
+        content: note || (outcome === KIND.CONFIRMED ? 'Confirmed they will come' : 'Marked not coming'),
+        metadata: {
+          kind: outcome,
+          ...(field ? { field } : {}),
+          ...(forDate ? { forDate } : {}),
+          lineupDate: tracker.lineupDate ? tracker.lineupDate.toISOString() : null,
+          interviewDate: tracker.interviewDate ? tracker.interviewDate.toISOString() : null,
+        },
+      }).returning();
+      await auditWrite(orgId, userId, `outcome_${outcome}`, 'candidate_tracker', trackerId, null, { actionId: action.id, outcome, forDate: forDate || null }, 'pipeline');
+      return action;
+    });
   }
 
   async getCurrentStage(trackerId) {

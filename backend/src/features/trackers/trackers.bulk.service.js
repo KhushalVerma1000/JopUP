@@ -5,6 +5,7 @@ const { canSeeTeam, canActOnTeam } = require('../../utils/teamScope');
 const { auditWrite } = require('../../utils/audit');
 const trackersService = require('./trackers.service');
 const automation = require('../automation/automation.service');
+const { isReschedule } = require('./trackers.today');
 
 const OPEN = ['active', 'on_hold'];
 const say = (status) => String(status).replace('_', ' ');
@@ -97,6 +98,8 @@ class TrackersBulkService {
         for (const p of toWrite) {
           await tx.update(schema.candidateTracker).set({ [field]: p.value, updatedAt: new Date() })
             .where(and(eq(schema.candidateTracker.id, p.id), eq(schema.candidateTracker.organisationId, orgId)));
+          // Same trail as a single change: a moved date counts as a reschedule.
+          if (isReschedule(before.get(p.id)[field], p.value)) await trackersService._logRescheduleTx(tx, p.id, user.userId, field, before.get(p.id)[field], p.value);
         }
       });
       for (const p of toWrite) {

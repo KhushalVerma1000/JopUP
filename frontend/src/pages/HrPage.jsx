@@ -11,6 +11,7 @@ import { buildUpdateText, copyStageLabel, copyText } from '../lib/clipboard';
 import { whatsappUrl, whatsappProps } from '../lib/whatsapp';
 import { dayKey, resolveDay, lineupLabel } from '../lib/lineupDay';
 import { PageHeader, Chips, ErrorNote, Loading, EmptyState, Sheet, Avatar, StatusPill, Field, Notice, Fab, RoundAction } from '@/components/common';
+import { TodayTab } from '../components/hr/TodayTab';
 import { PositionsTab } from '../components/hr/PositionsTab';
 import { PositionPicker } from '../components/hr/PositionPicker';
 import { StageUpdateSheet } from '../components/hr/StageUpdateSheet';
@@ -34,11 +35,12 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { relativeTime, shortDate, fullName } from '../lib/format';
 
 const COUNTRIES = [['IN', 'India +91'], ['US', 'United States +1'], ['GB', 'United Kingdom +44'], ['AE', 'UAE +971'], ['SG', 'Singapore +65'], ['CA', 'Canada +1'], ['AU', 'Australia +61']];
-const TABS = [{ key: 'pipeline', label: 'Pipeline' }, { key: 'positions', label: 'Positions' }, { key: 'candidates', label: 'Candidates' }];
+const TABS = [{ key: 'today', label: 'Today' }, { key: 'pipeline', label: 'Pipeline' }, { key: 'positions', label: 'Positions' }, { key: 'candidates', label: 'Candidates' }];
 const CLOSED = ['rejected', 'withdrawn', 'placed'];
 
 /**
- * HR workbench — phone-first. Three tabs, in the order the work happens:
+ * HR workbench — phone-first. Four tabs, in the order the day goes:
+ *   Today      – who to confirm, chase or update right now (opens first)
  *   Positions  – the demand (open requisitions) you're filling
  *   Candidates – the supply (your database)
  *   Pipeline   – who is where, and what to move or call next
@@ -47,7 +49,7 @@ const CLOSED = ['rejected', 'withdrawn', 'placed'];
 export function HrPage() {
   const auth = useAuth();
   const scope = useHrScope();
-  const [tab, setTab] = useState('pipeline');
+  const [tab, setTab] = useState('today');
   // Set by "Pipeline" on a position card: jump to the pipeline filtered to it.
   const [positionFilter, setPositionFilter] = useState('');
   // Lifted so "View pipeline" can switch to the whole team: a position's pipeline
@@ -60,6 +62,7 @@ export function HrPage() {
     <AppLayout wide>
       <PageHeader title="HR workbench" subtitle={`Hi ${auth.user.firstName} — here's what needs you today.`} />
       <Chips items={TABS} value={tab} onChange={setTab} className="mb-4" />
+      {tab === 'today' && <TodayTab scope={scope} scopeKey={scopeKey} setScopeKey={setScopeKey} onOpenPipeline={() => setTab('pipeline')} />}
       {tab === 'pipeline' && <PipelineTab scope={scope} scopeKey={scopeKey} setScopeKey={setScopeKey} positionFilter={positionFilter} setPositionFilter={setPositionFilter} />}
       {tab === 'positions' && <PositionsTab scope={scope} onViewPipeline={viewPipeline} />}
       {tab === 'candidates' && <CandidatesTab scope={scope} />}

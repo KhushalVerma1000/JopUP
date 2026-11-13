@@ -30,6 +30,8 @@ router.post('/tag', requirePermission('trackers', 'write'), validate(schema.tagC
 // or with "approve" added for org_admin/manager).
 router.patch('/:id', requirePermission('trackers', 'write'), validate(schema.updateTrackerSchema), controller.update.bind(controller));
 router.post('/:id/advance', requirePermission('workflow_actions', 'advance'), validate(schema.advanceStageSchema), controller.advanceStage.bind(controller));
+// HR's answer for a missed or upcoming date (not coming / confirmed). Logging an answer isn't a stage change, so it is a tracker write.
+router.post('/:id/outcome', requirePermission('trackers', 'write'), validate(schema.outcomeSchema), controller.outcome.bind(controller));
 router.post('/:id/block', requirePermission('workflow_actions', 'block'), validate(schema.blockTrackerSchema), controller.block.bind(controller));
 router.post('/:id/hold', requirePermission('workflow_actions', 'hold'), validate(schema.trackerParamsSchema), controller.hold.bind(controller));
 router.post('/:id/resume', requirePermission('workflow_actions', 'hold'), validate(schema.trackerParamsSchema), controller.resume.bind(controller));

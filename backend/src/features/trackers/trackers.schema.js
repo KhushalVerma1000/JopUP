@@ -88,6 +88,18 @@ const addActionSchema = z.object({
   }),
 });
 
+// HR's answer from the Today view. Only records the answer: the candidate stays at their stage.
+const outcomeSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid tracker ID') }),
+  body: z.object({
+    outcome: z.enum(['not_coming', 'confirmed']),
+    field: z.enum(['lineupDate', 'interviewDate']).optional(),
+    // HR's own calendar day the answer is about, e.g. the day a confirmation is for.
+    forDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
+    note: z.string().max(500).optional(),
+  }),
+});
+
 const trackerParamsSchema = z.object({
   params: z.object({
     id: z.string().uuid('Invalid tracker ID'),
@@ -142,5 +154,6 @@ module.exports = {
   updateTrackerSchema,
   blockTrackerSchema,
   addActionSchema,
+  outcomeSchema,
   trackerParamsSchema,
 };
