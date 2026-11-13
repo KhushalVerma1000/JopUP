@@ -34,10 +34,13 @@ async function readXlsx(buffer) {
     if (sheets.length >= MAX_SHEETS) { truncated = true; return; }
     if (ws.state && ws.state !== 'visible') return; // hidden tabs are usually scratch work
     const rows = [];
+    // ws.columnCount rescans the whole sheet on every read. Asked once per cell it made a 77 KB, 1,000-row tracker take
+    // ~15 s on a fast machine (minutes on a small server, so the request timed out). Ask once.
+    const width = Math.min(ws.columnCount, MAX_COLS);
     ws.eachRow({ includeEmpty: true }, (row, n) => {
       if (n > MAX_ROWS + 25) { truncated = true; return; }
       const cells = [];
-      for (let c = 1; c <= Math.min(ws.columnCount, MAX_COLS); c += 1) cells.push(cellValue(row.getCell(c).value));
+      for (let c = 1; c <= width; c += 1) cells.push(cellValue(row.getCell(c).value));
       rows[n - 1] = cells;
     });
     for (let i = 0; i < rows.length; i += 1) if (!rows[i]) rows[i] = [];
